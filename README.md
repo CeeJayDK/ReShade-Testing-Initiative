@@ -65,7 +65,19 @@ both platforms in CI — grab the latest binaries from the
 [Actions tab](https://github.com/CeeJayDK/ReshadeFX-tools/actions/workflows/build.yml)
 (click the newest run's artifacts), or from the
 [Releases page](https://github.com/CeeJayDK/ReshadeFX-tools/releases) for a
-tagged version (`git tag v1.0.0 && git push --tags` cuts a new one).
+tagged version.
+
+## Staying in sync with ReShade
+
+`RESHADE_VERSION` pins the exact upstream tag these tools are built against
+(currently ReShade 6.8.0). A daily scheduled workflow checks
+[crosire/reshade](https://github.com/crosire/reshade)'s tags directly via
+git (no REST API, no rate limits) for the newest clean `vMAJOR.MINOR.REVISION`
+tag — pre-releases like `v6.9.0-rc1` are ignored, matching how crosire
+actually marks an official release. When a new version appears, it bumps
+`RESHADE_VERSION`, tags this repo to match, and that tag push triggers the
+build workflow above, which builds, tests, and publishes a matching release
+automatically. No manual step required to stay current.
 
 With real GPU ISA via RGA (download RGA from its
 [releases page](https://github.com/GPUOpen-Tools/radeon_gpu_analyzer/releases)
