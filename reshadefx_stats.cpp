@@ -4,10 +4,80 @@
 #include "effect_parser.hpp"
 #include "effect_codegen.hpp"
 #include "effect_preprocessor.hpp"
+#include "json_util.hpp"
 #include <cstring>
 #include <cstdint>
 #include <iostream>
+#include <sstream>
+#include <regex>
 #include <vector>
+
+// Parses reshadefx's diagnostic text lines into structured fields, e.g.:
+//   file.fx(4, 11): error X3004: undeclared identifier 'foo'
+//   file.fx(1, 1): preprocessor error: could not open included file 'x.fxh'
+// A line that doesn't match this shape (rare, but not impossible) is still
+// included with only its raw text set, rather than silently dropped.
+struct diagnostic
+{
+	std::string file, line, column, severity, code, message, raw;
+	bool matched = false;
+};
+
+static std::vector<diagnostic> parse_diagnostics(const std::string &text)
+{
+	static const std::regex pattern(
+		R"(^(.+)\((\d+), (\d+)\): (preprocessor error|preprocessor warning|error|warning)(?: (\S+))?: (.*)$)");
+
+	std::vector<diagnostic> out;
+	std::istringstream stream(text);
+	std::string line;
+	while (std::getline(stream, line))
+	{
+		if (line.empty())
+			continue;
+		std::smatch m;
+		diagnostic d;
+		d.raw = line;
+		if (std::regex_match(line, m, pattern))
+		{
+			d.matched = true;
+			d.file = m[1];
+			d.line = m[2];
+			d.column = m[3];
+			d.severity = m[4];
+			d.code = m[5];
+			d.message = m[6];
+		}
+		out.push_back(std::move(d));
+	}
+	return out;
+}
+
+static std::string diagnostics_to_json(const std::string &text)
+{
+	const std::vector<diagnostic> diags = parse_diagnostics(text);
+	std::ostringstream out;
+	out << "[";
+	for (size_t i = 0; i < diags.size(); ++i)
+	{
+		const diagnostic &d = diags[i];
+		if (i > 0) out << ",";
+		out << "{\"raw\":\"" << json_escape(d.raw) << "\"";
+		if (d.matched)
+		{
+			out << ",\"file\":\"" << json_escape(d.file) << "\""
+				<< ",\"line\":" << d.line
+				<< ",\"column\":" << d.column
+				<< ",\"severity\":\"" << json_escape(d.severity) << "\"";
+			if (!d.code.empty())
+				out << ",\"code\":\"" << json_escape(d.code) << "\"";
+			out << ",\"message\":\"" << json_escape(d.message) << "\"";
+		}
+		out << "}";
+	}
+	out << "]";
+	return out.str();
+}
 
 static size_t count_spirv_instructions(const std::string &binary)
 {
@@ -34,7 +104,7 @@ int main(int argc, char *argv[])
 {
 	if (argc < 2)
 	{
-		std::cerr << "usage: " << argv[0] << " [-D name=value] [-I path] <file.fx>\n";
+		std::cerr << "usage: " << argv[0] << " [-D name=value] [-I path] [--json] <file.fx>\n";
 		return 1;
 	}
 
@@ -47,6 +117,7 @@ int main(int argc, char *argv[])
 	pp.add_macro_definition("BUFFER_RCP_HEIGHT", "(1.0 / BUFFER_HEIGHT)");
 
 	const char *source_file = nullptr;
+	bool json_output = false;
 	for (int i = 1; i < argc; ++i)
 	{
 		if (0 == std::strcmp(argv[i], "-D") && i + 1 < argc)
@@ -59,6 +130,10 @@ int main(int argc, char *argv[])
 		else if (0 == std::strcmp(argv[i], "-I") && i + 1 < argc)
 		{
 			pp.add_include_path(argv[++i]);
+		}
+		else if (0 == std::strcmp(argv[i], "--json"))
+		{
+			json_output = true;
 		}
 		else
 		{
@@ -74,7 +149,11 @@ int main(int argc, char *argv[])
 
 	if (!pp.append_file(source_file))
 	{
-		std::cout << pp.errors() << std::endl;
+		if (json_output)
+			std::cout << "{\"file\":\"" << json_escape(source_file) << "\",\"success\":false,"
+				<< "\"stage\":\"preprocess\",\"diagnostics\":" << diagnostics_to_json(pp.errors()) << "}\n";
+		else
+			std::cout << pp.errors() << std::endl;
 		return 1;
 	}
 
@@ -84,11 +163,19 @@ int main(int argc, char *argv[])
 	reshadefx::parser parser;
 	if (!parser.parse(pp.output(), backend.get()))
 	{
-		std::cout << pp.errors() << parser.errors() << std::endl;
+		if (json_output)
+			std::cout << "{\"file\":\"" << json_escape(source_file) << "\",\"success\":false,"
+				<< "\"stage\":\"parse\",\"diagnostics\":" << diagnostics_to_json(pp.errors() + parser.errors()) << "}\n";
+		else
+			std::cout << pp.errors() << parser.errors() << std::endl;
 		return 1;
 	}
 
-	std::cout << "COMPILE_OK\n";
+	if (!json_output)
+		std::cout << "COMPILE_OK\n";
+
+	struct entry_result { std::string stage, name; size_t instructions; bool failed; std::string error; };
+	std::vector<entry_result> results;
 
 	size_t total = 0;
 	for (const auto &[entry_name, stage] : backend->module().entry_points)
@@ -101,16 +188,39 @@ int main(int argc, char *argv[])
 
 		if (!backend->assemble_code_for_entry_point(entry_name, binary, assembly, errors))
 		{
-			std::cout << "ENTRY_FAIL " << entry_name << " " << errors << "\n";
+			results.push_back({stage_name, entry_name, 0, true, errors});
+			if (!json_output)
+				std::cout << "ENTRY_FAIL " << entry_name << " " << errors << "\n";
 			continue;
 		}
 
 		const size_t count = count_spirv_instructions(binary);
 		total += count;
-		std::cout << "ENTRY " << stage_name << " " << entry_name
-			<< " instructions=" << count << "\n";
+		results.push_back({stage_name, entry_name, count, false, ""});
+		if (!json_output)
+			std::cout << "ENTRY " << stage_name << " " << entry_name
+				<< " instructions=" << count << "\n";
 	}
-	std::cout << "TOTAL_INSTRUCTIONS " << total << "\n";
+
+	if (json_output)
+	{
+		std::cout << "{\"file\":\"" << json_escape(source_file) << "\",\"success\":true,\"entries\":[";
+		for (size_t i = 0; i < results.size(); ++i)
+		{
+			const auto &r = results[i];
+			if (i > 0) std::cout << ",";
+			std::cout << "{\"stage\":\"" << r.stage << "\",\"name\":\"" << json_escape(r.name) << "\"";
+			if (r.failed)
+				std::cout << ",\"failed\":true,\"error\":\"" << json_escape(r.error) << "\"}";
+			else
+				std::cout << ",\"instructions\":" << r.instructions << "}";
+		}
+		std::cout << "],\"total_instructions\":" << total << "}\n";
+	}
+	else
+	{
+		std::cout << "TOTAL_INSTRUCTIONS " << total << "\n";
+	}
 
 	return 0;
 }

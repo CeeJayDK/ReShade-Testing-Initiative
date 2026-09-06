@@ -17,6 +17,7 @@
 #include "effect_codegen.hpp"
 #include "effect_preprocessor.hpp"
 #include "GLSL.std.450.h"
+#include "json_util.hpp"
 #include <cstring>
 #include <cstdint>
 #include <cstdio>
@@ -30,6 +31,43 @@
 #include <filesystem>
 
 namespace fs = std::filesystem;
+
+// Turns one RGA CSV header line + one values line into a JSON object,
+// splitting generically on commas rather than hardcoding RGA's column
+// names, so this keeps working if a future RGA version adds/reorders
+// columns. A value is emitted as a JSON number if it parses as one
+// (every column except DEVICE is numeric today), otherwise as a string.
+static std::string csv_row_to_json_object(const std::string &header, const std::string &values)
+{
+	auto split = [](const std::string &s)
+	{
+		std::vector<std::string> out;
+		std::stringstream ss(s);
+		std::string item;
+		while (std::getline(ss, item, ','))
+			out.push_back(item);
+		return out;
+	};
+	const std::vector<std::string> keys = split(header);
+	const std::vector<std::string> vals = split(values);
+
+	std::ostringstream out;
+	out << "{";
+	for (size_t i = 0; i < keys.size() && i < vals.size(); ++i)
+	{
+		if (i > 0) out << ",";
+		out << "\"" << json_escape(keys[i]) << "\":";
+		char *end = nullptr;
+		std::strtod(vals[i].c_str(), &end);
+		const bool is_number = end != nullptr && *end == '\0' && !vals[i].empty();
+		if (is_number)
+			out << vals[i];
+		else
+			out << "\"" << json_escape(vals[i]) << "\"";
+	}
+	out << "}";
+	return out.str();
+}
 
 struct instruction_counts
 {
@@ -159,7 +197,7 @@ static instruction_counts classify_spirv_instructions(const std::string &binary)
 static void print_usage(const char *path)
 {
 	std::cout <<
-		"usage: " << path << " [-D name=value] [-I path] [--rga <path-to-rga>] [--asic <name>]... <file.fx>\n\n"
+		"usage: " << path << " [-D name=value] [-I path] [--rga <path-to-rga>] [--asic <name>]... [--json] <file.fx>\n\n"
 		"  -D <id>=<text>   Define a preprocessor macro. Repeatable.\n"
 		"  -I <path>        Add directory to include search path. Repeatable.\n"
 		"  --rga <path>     Path to the RGA (Radeon GPU Analyzer) executable.\n"
@@ -168,7 +206,9 @@ static void print_usage(const char *path)
 		"                   instruction classification is printed.\n"
 		"  --asic <name>    AMD GPU codename to target (e.g. gfx1100). Repeatable.\n"
 		"                   Defaults to gfx1100 (RDNA3) if --rga is given but no\n"
-		"                   --asic is specified.\n";
+		"                   --asic is specified.\n"
+		"  --json           Emit machine-readable JSON instead of the default\n"
+		"                   human-readable text.\n";
 }
 
 int main(int argc, char *argv[])
@@ -184,6 +224,7 @@ int main(int argc, char *argv[])
 	const char *source_file = nullptr;
 	std::string rga_path;
 	std::vector<std::string> asics;
+	bool json_output = false;
 
 	for (int i = 1; i < argc; ++i)
 	{
@@ -214,6 +255,10 @@ int main(int argc, char *argv[])
 		{
 			asics.push_back(argv[++i]);
 		}
+		else if (arg == "--json")
+		{
+			json_output = true;
+		}
 		else
 		{
 			source_file = argv[i];
@@ -230,7 +275,11 @@ int main(int argc, char *argv[])
 
 	if (!pp.append_file(source_file))
 	{
-		std::cout << pp.errors() << std::endl;
+		if (json_output)
+			std::cout << "{\"file\":\"" << json_escape(source_file) << "\",\"success\":false,"
+				<< "\"stage\":\"preprocess\",\"error\":\"" << json_escape(pp.errors()) << "\"}\n";
+		else
+			std::cout << pp.errors() << std::endl;
 		return 1;
 	}
 
@@ -240,11 +289,16 @@ int main(int argc, char *argv[])
 	reshadefx::parser parser;
 	if (!parser.parse(pp.output(), backend.get()))
 	{
-		std::cout << pp.errors() << parser.errors() << std::endl;
+		if (json_output)
+			std::cout << "{\"file\":\"" << json_escape(source_file) << "\",\"success\":false,"
+				<< "\"stage\":\"parse\",\"error\":\"" << json_escape(pp.errors() + parser.errors()) << "\"}\n";
+		else
+			std::cout << pp.errors() << parser.errors() << std::endl;
 		return 1;
 	}
 
-	std::cout << "COMPILE_OK " << source_file << "\n\n";
+	if (!json_output)
+		std::cout << "COMPILE_OK " << source_file << "\n\n";
 
 	fs::path temp_dir;
 	if (!rga_path.empty())
@@ -253,12 +307,27 @@ int main(int argc, char *argv[])
 		fs::create_directories(temp_dir);
 	}
 
+	// Buffered so JSON mode can emit one clean object at the end; text mode
+	// still prints incrementally below, unchanged from before.
+	std::ostringstream json_entries;
+	bool first_entry = true;
+
 	for (const auto &[entry_name, stage] : backend->module().entry_points)
 	{
 		std::string binary, assembly, errors;
 		if (!backend->assemble_code_for_entry_point(entry_name, binary, assembly, errors))
 		{
-			std::cout << "ENTRY_FAIL " << entry_name << " " << errors << "\n";
+			if (json_output)
+			{
+				if (!first_entry) json_entries << ",";
+				first_entry = false;
+				json_entries << "{\"name\":\"" << json_escape(entry_name) << "\",\"failed\":true,"
+					<< "\"error\":\"" << json_escape(errors) << "\"}";
+			}
+			else
+			{
+				std::cout << "ENTRY_FAIL " << entry_name << " " << errors << "\n";
+			}
 			continue;
 		}
 
@@ -269,86 +338,131 @@ int main(int argc, char *argv[])
 
 		const instruction_counts counts = classify_spirv_instructions(binary);
 
-		std::cout << "=== " << stage_name << " " << entry_name << " ===\n";
-		std::cout << "  executed_instructions=" << counts.executed()
-			<< " (+" << counts.declaration << " compile-time declarations, not counted)\n";
-		std::cout << "  cheap_alu=" << counts.cheap_alu
-			<< " transcendental=" << counts.transcendental
-			<< " texture=" << counts.texture
-			<< " control_flow=" << counts.control_flow
-			<< " memory=" << counts.memory
-			<< " other=" << counts.other << "\n";
-
-		if (rga_path.empty())
-			continue;
-
-		const fs::path spv_path = temp_dir / (entry_name + ".spv");
+		if (!json_output)
 		{
-			std::ofstream ofs(spv_path, std::ios::binary);
-			ofs.write(binary.data(), binary.size());
+			std::cout << "=== " << stage_name << " " << entry_name << " ===\n";
+			std::cout << "  executed_instructions=" << counts.executed()
+				<< " (+" << counts.declaration << " compile-time declarations, not counted)\n";
+			std::cout << "  cheap_alu=" << counts.cheap_alu
+				<< " transcendental=" << counts.transcendental
+				<< " texture=" << counts.texture
+				<< " control_flow=" << counts.control_flow
+				<< " memory=" << counts.memory
+				<< " other=" << counts.other << "\n";
 		}
 
-		const char *stage_flag =
-			stage == reshadefx::shader_type::vertex ? "--vert" :
-			stage == reshadefx::shader_type::pixel ? "--frag" :
-			stage == reshadefx::shader_type::compute ? "--comp" : nullptr;
-		if (stage_flag == nullptr)
-			continue;
+		std::ostringstream rga_results_json;
+		bool first_rga = true;
 
-		for (const std::string &asic : asics)
+		if (!rga_path.empty())
 		{
-			const fs::path isa_path = temp_dir / (entry_name + "_" + asic + "_isa.txt");
-			const fs::path stats_path = temp_dir / (entry_name + "_" + asic + "_stats.csv");
-
-			std::ostringstream cmd;
-#ifdef _WIN32
-			// cmd.exe has a well-known quirk: if the command line starts with a
-			// quoted path, it must be wrapped in one more pair of quotes or it
-			// mis-parses the first token. See MS KB "cmd /c" quoting behavior.
-			cmd << "\"";
-#endif
-			cmd << "\"" << rga_path << "\" -s vulkan -c " << asic
-				<< " " << stage_flag << " \"" << spv_path.string() << "\""
-				<< " --isa \"" << isa_path.string() << "\""
-				<< " -a \"" << stats_path.string() << "\""
-				<< " > \"" << (temp_dir / "rga_log.txt").string() << "\" 2>&1";
-#ifdef _WIN32
-			cmd << "\"";
-#endif
-			std::system(cmd.str().c_str());
-
-			// RGA renames output files (<asic>_<requested-name>_<stage>.csv) rather than
-			// using the exact path given via -a, so search for what it actually produced.
-			const std::string stage_suffix =
-				stage == reshadefx::shader_type::vertex ? "_vert.csv" :
-				stage == reshadefx::shader_type::pixel ? "_frag.csv" : "_comp.csv";
-			fs::path actual_stats;
-			for (const auto &dirent : fs::directory_iterator(temp_dir))
+			const fs::path spv_path = temp_dir / (entry_name + ".spv");
 			{
-				const std::string name = dirent.path().filename().string();
-				if (name.find(entry_name) != std::string::npos &&
-					name.find("stats") != std::string::npos &&
-					name.size() >= stage_suffix.size() &&
-					name.compare(name.size() - stage_suffix.size(), stage_suffix.size(), stage_suffix) == 0)
+				std::ofstream ofs(spv_path, std::ios::binary);
+				ofs.write(binary.data(), binary.size());
+			}
+
+			const char *stage_flag =
+				stage == reshadefx::shader_type::vertex ? "--vert" :
+				stage == reshadefx::shader_type::pixel ? "--frag" :
+				stage == reshadefx::shader_type::compute ? "--comp" : nullptr;
+
+			for (const std::string &asic : (stage_flag != nullptr ? asics : std::vector<std::string>{}))
+			{
+				const fs::path isa_path = temp_dir / (entry_name + "_" + asic + "_isa.txt");
+				const fs::path stats_path = temp_dir / (entry_name + "_" + asic + "_stats.csv");
+
+				std::ostringstream cmd;
+#ifdef _WIN32
+				// cmd.exe has a well-known quirk: if the command line starts with a
+				// quoted path, it must be wrapped in one more pair of quotes or it
+				// mis-parses the first token. See MS KB "cmd /c" quoting behavior.
+				cmd << "\"";
+#endif
+				cmd << "\"" << rga_path << "\" -s vulkan -c " << asic
+					<< " " << stage_flag << " \"" << spv_path.string() << "\""
+					<< " --isa \"" << isa_path.string() << "\""
+					<< " -a \"" << stats_path.string() << "\""
+					<< " > \"" << (temp_dir / "rga_log.txt").string() << "\" 2>&1";
+#ifdef _WIN32
+				cmd << "\"";
+#endif
+				std::system(cmd.str().c_str());
+
+				// RGA renames output files (<asic>_<requested-name>_<stage>.csv) rather than
+				// using the exact path given via -a, so search for what it actually produced.
+				const std::string stage_suffix =
+					stage == reshadefx::shader_type::vertex ? "_vert.csv" :
+					stage == reshadefx::shader_type::pixel ? "_frag.csv" : "_comp.csv";
+				fs::path actual_stats;
+				for (const auto &dirent : fs::directory_iterator(temp_dir))
 				{
-					actual_stats = dirent.path();
-					break;
+					const std::string name = dirent.path().filename().string();
+					if (name.find(entry_name) != std::string::npos &&
+						name.find("stats") != std::string::npos &&
+						name.size() >= stage_suffix.size() &&
+						name.compare(name.size() - stage_suffix.size(), stage_suffix.size(), stage_suffix) == 0)
+					{
+						actual_stats = dirent.path();
+						break;
+					}
+				}
+
+				std::ifstream stats_in(actual_stats);
+				if (!stats_in)
+				{
+					if (json_output)
+					{
+						if (!first_rga) rga_results_json << ",";
+						first_rga = false;
+						rga_results_json << "{\"asic\":\"" << json_escape(asic) << "\",\"found\":false}";
+					}
+					else
+					{
+						std::cout << "  [" << asic << "] RGA output not found (is the --rga path correct, and "
+							"does this RGA build support this stage/target?)\n";
+					}
+					continue;
+				}
+				std::string header, values;
+				std::getline(stats_in, header);
+				std::getline(stats_in, values);
+
+				if (json_output)
+				{
+					if (!first_rga) rga_results_json << ",";
+					first_rga = false;
+					rga_results_json << "{\"asic\":\"" << json_escape(asic) << "\",\"found\":true,"
+						<< "\"stats\":" << csv_row_to_json_object(header, values) << "}";
+				}
+				else
+				{
+					std::cout << "  [" << asic << "] " << header << "\n              " << values << "\n";
 				}
 			}
-
-			std::cout << "  [" << asic << "] ";
-			std::ifstream stats_in(actual_stats);
-			if (!stats_in)
-			{
-				std::cout << "RGA output not found (is the --rga path correct, and "
-					"does this RGA build support this stage/target?)\n";
-				continue;
-			}
-			std::string header, values;
-			std::getline(stats_in, header);
-			std::getline(stats_in, values);
-			std::cout << header << "\n              " << values << "\n";
 		}
+
+		if (json_output)
+		{
+			if (!first_entry) json_entries << ",";
+			first_entry = false;
+			json_entries << "{\"stage\":\"" << stage_name << "\",\"name\":\"" << json_escape(entry_name) << "\","
+				<< "\"executed_instructions\":" << counts.executed() << ","
+				<< "\"declarations\":" << counts.declaration << ","
+				<< "\"cheap_alu\":" << counts.cheap_alu << ","
+				<< "\"transcendental\":" << counts.transcendental << ","
+				<< "\"texture\":" << counts.texture << ","
+				<< "\"control_flow\":" << counts.control_flow << ","
+				<< "\"memory\":" << counts.memory << ","
+				<< "\"other\":" << counts.other << ","
+				<< "\"rga\":[" << rga_results_json.str() << "]}";
+		}
+	}
+
+	if (json_output)
+	{
+		std::cout << "{\"file\":\"" << json_escape(source_file) << "\",\"success\":true,"
+			<< "\"entries\":[" << json_entries.str() << "]}\n";
 	}
 
 	return 0;
