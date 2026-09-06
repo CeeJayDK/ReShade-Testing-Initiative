@@ -1,6 +1,6 @@
-# ReShade AI Tools
+# ReShadeFX Tools
 
-Tools that let an AI assistant (or anyone without a Windows machine) compile
+Tools that let humans and AI assistants alike compile
 and verify [ReShade FX](https://github.com/crosire/reshade) shaders directly,
 using the real ReShade FX compiler — not a re-implementation or a guess at
 what would compile.
