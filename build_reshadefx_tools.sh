@@ -51,6 +51,7 @@ reshadefx::codegen *reshadefx::create_codegen_dxbc(unsigned int, bool, bool, int
 EOF
 
 mkdir -p "$OUT_DIR"
+OUT_DIR="$(cd "$OUT_DIR" && pwd)"  # resolve to absolute before the cd below changes CWD
 cd "$WORK_DIR/reshade"
 
 COMMON_SRC=(

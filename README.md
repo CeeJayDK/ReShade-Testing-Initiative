@@ -1,6 +1,8 @@
-# ReShadeFX Tools
+# ReShade AI Tools
 
-Tools that let humans and AI assistants alike compile
+[![Build](https://github.com/CeeJayDK/ReshadeFX-tools/actions/workflows/build.yml/badge.svg)](https://github.com/CeeJayDK/ReshadeFX-tools/actions/workflows/build.yml)
+
+Tools that let an AI assistant (or anyone without a Windows machine) compile
 and verify [ReShade FX](https://github.com/crosire/reshade) shaders directly,
 using the real ReShade FX compiler — not a re-implementation or a guess at
 what would compile.
@@ -57,6 +59,13 @@ shader is valid.
 ./bin/reshadefx_stats -I path/to/reshade-shaders/Shaders myshader.fx
 ./bin/reshadefx_rga -I path/to/reshade-shaders/Shaders myshader.fx
 ```
+
+Don't want to build anything? Every push to `main` builds and functional-tests
+both platforms in CI — grab the latest binaries from the
+[Actions tab](https://github.com/CeeJayDK/ReshadeFX-tools/actions/workflows/build.yml)
+(click the newest run's artifacts), or from the
+[Releases page](https://github.com/CeeJayDK/ReshadeFX-tools/releases) for a
+tagged version (`git tag v1.0.0 && git push --tags` cuts a new one).
 
 With real GPU ISA via RGA (download RGA from its
 [releases page](https://github.com/GPUOpen-Tools/radeon_gpu_analyzer/releases)

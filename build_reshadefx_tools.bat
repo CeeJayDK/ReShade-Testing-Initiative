@@ -59,6 +59,8 @@ echo 	return nullptr; >> "%DS%"
 echo } >> "%DS%"
 
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
+for %%I in ("%OUT_DIR%") do set "OUT_DIR=%%~fI"
+REM ^ resolve to an absolute path now, before pushd changes the working directory
 pushd "%WORK_DIR%\reshade"
 
 set "INCLUDES=-I source -I res -I deps\spirv\include\spirv\unified1"
