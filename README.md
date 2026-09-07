@@ -1,19 +1,16 @@
-# ReShade AI Tools
+# ReShade FX-tools
 
 [![Build](https://github.com/CeeJayDK/ReshadeFX-tools/actions/workflows/build.yml/badge.svg)](https://github.com/CeeJayDK/ReshadeFX-tools/actions/workflows/build.yml)
 
-Tools that let an AI assistant (or anyone without a Windows machine) compile
-and verify [ReShade FX](https://github.com/crosire/reshade) shaders directly,
-using the real ReShade FX compiler — not a re-implementation or a guess at
-what would compile.
+Command-line tools for anyone working with [ReShade FX](https://github.com/crosire/reshade)
+shaders who wants to compile, verify, or analyze them quickly — without
+opening a game, and without needing Windows. Built for humans and AI
+assistants alike: same tools, same output, whether you're running them by
+hand or an agent is driving them as part of an automated workflow.
 
-This exists because AI-assisted shader work (porting, writing, or optimizing
-ReShade FX effects) is much faster and more reliable when the assistant can
-see real compiler output and iterate on its own, instead of a human relaying
-error messages back and forth from a Windows machine running ReShade.
-
-This isn't specific to any one project — any ReShade FX shader work benefits
-from being able to compile and check instruction counts on the spot.
+These use the real ReShade FX compiler itself, not a re-implementation or
+a guess at what would compile — so the answer you get is the answer ReShade
+itself would give.
 
 ## What's here
 
@@ -46,6 +43,16 @@ build three CLI tools from it:
     VGPR/SGPR register usage for a real, named GPU — actual hardware data,
     not a heuristic.
 
+`reshadefx_stats` and `reshadefx_rga` both accept `--json` for
+machine-readable output (structured compile diagnostics with
+file/line/column/code, and named numeric fields instead of text) — useful
+when something else is going to parse the result rather than a human reading
+it directly. `reshadefx_cli` deliberately stays plain text only — it's built
+from crosire's own unmodified `tools/fxc.cpp`, fetched fresh every build, so
+patching a `--json` flag into it would mean re-patching on every ReShade
+version bump. `reshadefx_stats` covers the same compile-checking use case
+and already has structured error output.
+
 The DXBC/DXIL backends are intentionally excluded — they call into
 Microsoft's D3DCompiler and are Windows-only — but they aren't needed to
 validate a shader: HLSL/GLSL/SPIR-V codegen succeeding already proves the
@@ -58,6 +65,38 @@ shader is valid.
 ./bin/reshadefx_cli --hlsl -I path/to/reshade-shaders/Shaders -Fo out.hlsl myshader.fx
 ./bin/reshadefx_stats -I path/to/reshade-shaders/Shaders myshader.fx
 ./bin/reshadefx_rga -I path/to/reshade-shaders/Shaders myshader.fx
+```
+
+All three tools accept `-I <path>` for include directories (e.g. the
+standard [reshade-shaders](https://github.com/crosire/reshade-shaders) repo,
+if your effect includes `ReShade.fxh`) and `-D name=value` for preprocessor
+macros.
+
+For real GPU ISA instead of just the built-in instruction classification,
+point `reshadefx_rga` at an installed copy of RGA (download from its
+[releases page](https://github.com/GPUOpen-Tools/radeon_gpu_analyzer/releases)
+— not bundled here, it's a large AMD binary under AMD's own EULA):
+
+```bash
+./bin/reshadefx_rga -I path/to/reshade-shaders/Shaders --rga path/to/rga --asic gfx1100 myshader.fx
+```
+
+Add `--json` to `reshadefx_stats` or `reshadefx_rga` for machine-readable
+output instead of the human-readable text shown above:
+
+```bash
+./bin/reshadefx_stats --json -I path/to/reshade-shaders/Shaders myshader.fx
+# {"file":"myshader.fx","success":true,"entries":[...],"total_instructions":306}
+```
+
+By default the build script builds all three tools. If you only need one or
+two — e.g. for a project like ShaderBridge where you only care whether a
+port compiles correctly and have no use for the optimization-focused
+stats/rga tools — pass any combination of `--cli`, `--stats`, `--rga`:
+
+```bash
+./build_reshadefx_tools.sh --cli              # just the compiler
+./build_reshadefx_tools.sh --stats --rga      # skip the plain compiler
 ```
 
 Don't want to build anything? Every push to `main` builds and functional-tests
@@ -78,19 +117,6 @@ actually marks an official release. When a new version appears, it bumps
 `RESHADE_VERSION`, tags this repo to match, and that tag push triggers the
 build workflow above, which builds, tests, and publishes a matching release
 automatically. No manual step required to stay current.
-
-With real GPU ISA via RGA (download RGA from its
-[releases page](https://github.com/GPUOpen-Tools/radeon_gpu_analyzer/releases)
-— not bundled here, it's a large AMD binary under AMD's own EULA):
-
-```bash
-./bin/reshadefx_rga -I path/to/reshade-shaders/Shaders --rga path/to/rga --asic gfx1100 myshader.fx
-```
-
-All three tools accept `-I <path>` for include directories (e.g. the
-standard [reshade-shaders](https://github.com/crosire/reshade-shaders) repo,
-if your effect includes `ReShade.fxh`) and `-D name=value` for preprocessor
-macros.
 
 ## Notes on the Windows build
 
