@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds two Linux CLI tools from crosire/reshade's real, unmodified
+# Builds three Linux CLI tools from crosire/reshade's real, unmodified
 # reshadefx compiler source (lexer, preprocessor, parser, symbol table,
 # HLSL/GLSL/SPIR-V codegen). No Wine, no Windows dependency.
 #
@@ -8,12 +8,20 @@
 #   reshadefx_stats - compiles a .fx file and reports real SPIR-V
 #                      instruction counts per shader entry point, for
 #                      before/after optimization comparisons.
+#   reshadefx_rga   - makes RGA (Radeon GPU Analyzer) understand ReShade
+#                      FX shaders, for real GPU ISA / register analysis.
 #
 # Only the DXBC/DXIL backends are excluded (they call into Microsoft's
 # D3DCompiler and are Windows-only). They are not needed to validate a
 # port: HLSL/GLSL/SPIR-V codegen already proves the shader is valid.
 #
-# Usage: ./build_reshadefx_tools.sh [output_dir]
+# Usage: ./build_reshadefx_tools.sh [output_dir] [--cli] [--stats] [--rga]
+#
+# By default (no --cli/--stats/--rga given), all three are built. Pass any
+# combination of those flags to build only a subset - e.g. if you only care
+# about compile-correctness checking for a project like ShaderBridge and
+# have no use for the optimization-focused stats/rga tools:
+#   ./build_reshadefx_tools.sh --cli
 set -euo pipefail
 
 RESHADE_COMMIT="358c345ca2fe64f86e67c694f8379c356627adcb"  # fallback if RESHADE_VERSION is absent
@@ -21,7 +29,31 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ -f "$SCRIPT_DIR/RESHADE_VERSION" ]; then
 	RESHADE_COMMIT="$(tr -d '[:space:]' < "$SCRIPT_DIR/RESHADE_VERSION")"
 fi
-OUT_DIR="${1:-$SCRIPT_DIR/bin}"
+
+OUT_DIR=""
+WANT_CLI=0
+WANT_STATS=0
+WANT_RGA=0
+ANY_SELECTED=0
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--cli)
+			WANT_CLI=1; ANY_SELECTED=1; shift ;;
+		--stats)
+			WANT_STATS=1; ANY_SELECTED=1; shift ;;
+		--rga)
+			WANT_RGA=1; ANY_SELECTED=1; shift ;;
+		*)
+			OUT_DIR="$1"; shift ;;
+	esac
+done
+if [ "$ANY_SELECTED" -eq 0 ]; then
+	WANT_CLI=1
+	WANT_STATS=1
+	WANT_RGA=1
+fi
+OUT_DIR="${OUT_DIR:-$SCRIPT_DIR/bin}"
+
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
@@ -74,31 +106,39 @@ COMMON_SRC=(
 )
 INCLUDES=(-I source -I res -I deps/spirv/include/spirv/unified1)
 
-echo "Building reshadefx_cli ..."
-g++ -std=c++17 -O2 "${INCLUDES[@]}" "${COMMON_SRC[@]}" \
-	tools/fxc.cpp "$WORK_DIR/dxbc_stub.cpp" \
-	-o "$OUT_DIR/reshadefx_cli"
+if [ "$WANT_CLI" -eq 1 ]; then
+	echo "Building reshadefx_cli ..."
+	g++ -std=c++17 -O2 "${INCLUDES[@]}" "${COMMON_SRC[@]}" \
+		tools/fxc.cpp "$WORK_DIR/dxbc_stub.cpp" \
+		-o "$OUT_DIR/reshadefx_cli"
+fi
 
-echo "Building reshadefx_stats ..."
-g++ -std=c++17 -O2 "${INCLUDES[@]}" \
-	source/effect_lexer.cpp source/effect_preprocessor.cpp \
-	source/effect_parser_exp.cpp source/effect_parser_stmt.cpp \
-	source/effect_symbol_table.cpp source/effect_expression.cpp \
-	source/effect_codegen_spirv.cpp \
-	"$SCRIPT_DIR/reshadefx_stats.cpp" \
-	-o "$OUT_DIR/reshadefx_stats"
+if [ "$WANT_STATS" -eq 1 ]; then
+	echo "Building reshadefx_stats ..."
+	g++ -std=c++17 -O2 "${INCLUDES[@]}" \
+		source/effect_lexer.cpp source/effect_preprocessor.cpp \
+		source/effect_parser_exp.cpp source/effect_parser_stmt.cpp \
+		source/effect_symbol_table.cpp source/effect_expression.cpp \
+		source/effect_codegen_spirv.cpp \
+		"$SCRIPT_DIR/reshadefx_stats.cpp" \
+		-o "$OUT_DIR/reshadefx_stats"
+fi
 
-echo "Building reshadefx_rga ..."
-g++ -std=c++17 -O2 "${INCLUDES[@]}" \
-	source/effect_lexer.cpp source/effect_preprocessor.cpp \
-	source/effect_parser_exp.cpp source/effect_parser_stmt.cpp \
-	source/effect_symbol_table.cpp source/effect_expression.cpp \
-	source/effect_codegen_spirv.cpp \
-	"$SCRIPT_DIR/reshadefx_rga.cpp" \
-	-o "$OUT_DIR/reshadefx_rga"
+if [ "$WANT_RGA" -eq 1 ]; then
+	echo "Building reshadefx_rga ..."
+	g++ -std=c++17 -O2 "${INCLUDES[@]}" \
+		source/effect_lexer.cpp source/effect_preprocessor.cpp \
+		source/effect_parser_exp.cpp source/effect_parser_stmt.cpp \
+		source/effect_symbol_table.cpp source/effect_expression.cpp \
+		source/effect_codegen_spirv.cpp \
+		"$SCRIPT_DIR/reshadefx_rga.cpp" \
+		-o "$OUT_DIR/reshadefx_rga"
+fi
 
 echo "Done. Binaries in $OUT_DIR"
-echo "Example: $OUT_DIR/reshadefx_cli --hlsl -I path/to/reshade-shaders/Shaders -Fo out.hlsl myshader.fx"
-echo "Example: $OUT_DIR/reshadefx_stats -I path/to/reshade-shaders/Shaders myshader.fx"
-echo "Example: $OUT_DIR/reshadefx_rga -I path/to/reshade-shaders/Shaders myshader.fx"
-echo "Example: $OUT_DIR/reshadefx_rga -I path/to/reshade-shaders/Shaders --rga /path/to/rga --asic gfx1100 myshader.fx"
+[ "$WANT_CLI" -eq 1 ] && echo "Example: $OUT_DIR/reshadefx_cli --hlsl -I path/to/reshade-shaders/Shaders -Fo out.hlsl myshader.fx"
+[ "$WANT_STATS" -eq 1 ] && echo "Example: $OUT_DIR/reshadefx_stats -I path/to/reshade-shaders/Shaders myshader.fx"
+if [ "$WANT_RGA" -eq 1 ]; then
+	echo "Example: $OUT_DIR/reshadefx_rga -I path/to/reshade-shaders/Shaders myshader.fx"
+	echo "Example: $OUT_DIR/reshadefx_rga -I path/to/reshade-shaders/Shaders --rga /path/to/rga --asic gfx1100 myshader.fx"
+fi

@@ -7,14 +7,56 @@ REM Requires: git, and a MinGW-w64 g++ (x86_64) on PATH.
 REM   Easiest install: https://winlibs.com (download, unzip, add its bin\ to PATH)
 REM   or via MSYS2: pacman -S mingw-w64-x86_64-gcc
 REM
-REM Usage: build_reshadefx_tools.bat [output_dir]
+REM Usage: build_reshadefx_tools.bat [output_dir] [--cli] [--stats] [--rga]
+REM
+REM By default (no --cli/--stats/--rga given), all three are built. Pass any
+REM combination of those flags to build only a subset - e.g. if you only care
+REM about compile-correctness checking for a project like ShaderBridge and
+REM have no use for the optimization-focused stats/rga tools:
+REM   build_reshadefx_tools.bat --cli
 
 set "RESHADE_COMMIT=358c345ca2fe64f86e67c694f8379c356627adcb"
 set "SCRIPT_DIR=%~dp0"
 if exist "%SCRIPT_DIR%RESHADE_VERSION" (
 	set /p RESHADE_COMMIT=<"%SCRIPT_DIR%RESHADE_VERSION"
 )
+
+set "OUT_DIR="
+set "WANT_CLI=0"
+set "WANT_STATS=0"
+set "WANT_RGA=0"
+set "ANY_SELECTED=0"
+
+:parse_args
+if "%~1"=="" goto args_done
+if /I "%~1"=="--cli" (
+	set "WANT_CLI=1"
+	set "ANY_SELECTED=1"
+	shift
+	goto parse_args
+)
+if /I "%~1"=="--stats" (
+	set "WANT_STATS=1"
+	set "ANY_SELECTED=1"
+	shift
+	goto parse_args
+)
+if /I "%~1"=="--rga" (
+	set "WANT_RGA=1"
+	set "ANY_SELECTED=1"
+	shift
+	goto parse_args
+)
 set "OUT_DIR=%~1"
+shift
+goto parse_args
+:args_done
+
+if "%ANY_SELECTED%"=="0" (
+	set "WANT_CLI=1"
+	set "WANT_STATS=1"
+	set "WANT_RGA=1"
+)
 if "%OUT_DIR%"=="" set "OUT_DIR=%SCRIPT_DIR%bin"
 set "WORK_DIR=%TEMP%\reshadefx_build_%RANDOM%"
 
@@ -87,31 +129,37 @@ set "COMMON_SRC=source\effect_lexer.cpp source\effect_preprocessor.cpp source\ef
 
 REM share.h provides SH_DENYWR, which MSVC headers define but MinGW's
 REM equivalent lives in a separate header the source doesn't include.
-echo Building reshadefx_cli.exe ...
-g++ -std=c++17 -O2 -static -include share.h %INCLUDES% ^
-	%COMMON_SRC% source\effect_codegen_hlsl.cpp source\effect_codegen_glsl.cpp source\effect_codegen_spirv.cpp ^
-	tools\fxc.cpp "%WORK_DIR%\dxbc_stub.cpp" ^
-	-o "%OUT_DIR%\reshadefx_cli.exe"
-if errorlevel 1 exit /b 1
+if "%WANT_CLI%"=="1" (
+	echo Building reshadefx_cli.exe ...
+	g++ -std=c++17 -O2 -static -include share.h %INCLUDES% ^
+		%COMMON_SRC% source\effect_codegen_hlsl.cpp source\effect_codegen_glsl.cpp source\effect_codegen_spirv.cpp ^
+		tools\fxc.cpp "%WORK_DIR%\dxbc_stub.cpp" ^
+		-o "%OUT_DIR%\reshadefx_cli.exe"
+	if errorlevel 1 exit /b 1
+)
 
-echo Building reshadefx_stats.exe ...
-g++ -std=c++17 -O2 -static -include share.h %INCLUDES% ^
-	%COMMON_SRC% source\effect_codegen_spirv.cpp ^
-	"%SCRIPT_DIR%reshadefx_stats.cpp" ^
-	-o "%OUT_DIR%\reshadefx_stats.exe"
-if errorlevel 1 exit /b 1
+if "%WANT_STATS%"=="1" (
+	echo Building reshadefx_stats.exe ...
+	g++ -std=c++17 -O2 -static -include share.h %INCLUDES% ^
+		%COMMON_SRC% source\effect_codegen_spirv.cpp ^
+		"%SCRIPT_DIR%reshadefx_stats.cpp" ^
+		-o "%OUT_DIR%\reshadefx_stats.exe"
+	if errorlevel 1 exit /b 1
+)
 
-echo Building reshadefx_rga.exe ...
-g++ -std=c++17 -O2 -static -include share.h %INCLUDES% ^
-	%COMMON_SRC% source\effect_codegen_spirv.cpp ^
-	"%SCRIPT_DIR%reshadefx_rga.cpp" ^
-	-o "%OUT_DIR%\reshadefx_rga.exe"
-if errorlevel 1 exit /b 1
+if "%WANT_RGA%"=="1" (
+	echo Building reshadefx_rga.exe ...
+	g++ -std=c++17 -O2 -static -include share.h %INCLUDES% ^
+		%COMMON_SRC% source\effect_codegen_spirv.cpp ^
+		"%SCRIPT_DIR%reshadefx_rga.cpp" ^
+		-o "%OUT_DIR%\reshadefx_rga.exe"
+	if errorlevel 1 exit /b 1
+)
 
 popd
 rmdir /s /q "%WORK_DIR%"
 
 echo Done. Binaries in %OUT_DIR%
-echo Example: %OUT_DIR%\reshadefx_cli.exe --hlsl -I path\to\reshade-shaders\Shaders -Fo out.hlsl myshader.fx
-echo Example: %OUT_DIR%\reshadefx_stats.exe -I path\to\reshade-shaders\Shaders myshader.fx
-echo Example: %OUT_DIR%\reshadefx_rga.exe -I path\to\reshade-shaders\Shaders --rga path\to\rga.exe --asic gfx1100 myshader.fx
+if "%WANT_CLI%"=="1" echo Example: %OUT_DIR%\reshadefx_cli.exe --hlsl -I path\to\reshade-shaders\Shaders -Fo out.hlsl myshader.fx
+if "%WANT_STATS%"=="1" echo Example: %OUT_DIR%\reshadefx_stats.exe -I path\to\reshade-shaders\Shaders myshader.fx
+if "%WANT_RGA%"=="1" echo Example: %OUT_DIR%\reshadefx_rga.exe -I path\to\reshade-shaders\Shaders --rga path\to\rga.exe --asic gfx1100 myshader.fx
