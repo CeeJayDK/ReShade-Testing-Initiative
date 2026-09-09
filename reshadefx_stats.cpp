@@ -100,21 +100,33 @@ static size_t count_spirv_instructions(const std::string &binary)
 	return count;
 }
 
+// Baked in by the build script from RESHADE_VERSION (MAJOR*10000 + MINOR*100
+// + REVISION, matching how ReShade itself computes __RESHADE__). Falls back
+// to a placeholder if compiled directly without that define.
+#ifndef RESHADEFX_VERSION_NUM
+#define RESHADEFX_VERSION_NUM 60000
+#endif
+
 int main(int argc, char *argv[])
 {
 	if (argc < 2)
 	{
-		std::cerr << "usage: " << argv[0] << " [-D name=value] [-I path] [--json] <file.fx>\n";
+		std::cerr << "usage: " << argv[0] << " [-D name=value] [-I path] [--json]\n"
+			"       [--reshade-version <num>] [--performance-mode] [--width <n>] [--height <n>] <file.fx>\n";
 		return 1;
 	}
 
 	reshadefx::preprocessor pp;
-	pp.add_macro_definition("__RESHADE__", "60000");
-	pp.add_macro_definition("__RESHADE_PERFORMANCE_MODE__", "0");
-	pp.add_macro_definition("BUFFER_WIDTH", "1920");
-	pp.add_macro_definition("BUFFER_HEIGHT", "1080");
-	pp.add_macro_definition("BUFFER_RCP_WIDTH", "(1.0 / BUFFER_WIDTH)");
-	pp.add_macro_definition("BUFFER_RCP_HEIGHT", "(1.0 / BUFFER_HEIGHT)");
+
+	// Defaults for the four ReShade-specific macros a shader might branch on.
+	// Applied AFTER argument parsing below (mirroring how crosire's own
+	// fxc.cpp does this) - add_macro_definition() silently keeps whichever
+	// value was added FIRST for a given name, so a user override must reach
+	// the preprocessor before these defaults do, not after.
+	std::string reshade_version = std::to_string(RESHADEFX_VERSION_NUM);
+	bool performance_mode = false;
+	std::string buffer_width = "1920";
+	std::string buffer_height = "1080";
 
 	const char *source_file = nullptr;
 	bool json_output = false;
@@ -135,6 +147,22 @@ int main(int argc, char *argv[])
 		{
 			json_output = true;
 		}
+		else if (0 == std::strcmp(argv[i], "--reshade-version") && i + 1 < argc)
+		{
+			reshade_version = argv[++i];
+		}
+		else if (0 == std::strcmp(argv[i], "--performance-mode"))
+		{
+			performance_mode = true;
+		}
+		else if (0 == std::strcmp(argv[i], "--width") && i + 1 < argc)
+		{
+			buffer_width = argv[++i];
+		}
+		else if (0 == std::strcmp(argv[i], "--height") && i + 1 < argc)
+		{
+			buffer_height = argv[++i];
+		}
 		else
 		{
 			source_file = argv[i];
@@ -146,6 +174,16 @@ int main(int argc, char *argv[])
 		std::cerr << "error: no input file\n";
 		return 1;
 	}
+
+	// Apply defaults now, after parsing - see comment above main() for why
+	// this order matters (a redefinition with a different value is silently
+	// rejected, so any user override must be added to `pp` first).
+	pp.add_macro_definition("__RESHADE__", reshade_version);
+	pp.add_macro_definition("__RESHADE_PERFORMANCE_MODE__", performance_mode ? "1" : "0");
+	pp.add_macro_definition("BUFFER_WIDTH", buffer_width);
+	pp.add_macro_definition("BUFFER_HEIGHT", buffer_height);
+	pp.add_macro_definition("BUFFER_RCP_WIDTH", "(1.0 / BUFFER_WIDTH)");
+	pp.add_macro_definition("BUFFER_RCP_HEIGHT", "(1.0 / BUFFER_HEIGHT)");
 
 	if (!pp.append_file(source_file))
 	{

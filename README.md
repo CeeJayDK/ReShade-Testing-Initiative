@@ -1,14 +1,14 @@
-# ReShade FX-tools
+# ReshadeFX-tools
 
 [![Build](https://github.com/CeeJayDK/ReshadeFX-tools/actions/workflows/build.yml/badge.svg)](https://github.com/CeeJayDK/ReshadeFX-tools/actions/workflows/build.yml)
 
-Command-line tools for anyone working with [ReShade FX](https://github.com/crosire/reshade)
+Command-line tools for anyone working with [ReshadeFX](https://github.com/crosire/reshade)
 shaders who wants to compile, verify, or analyze them quickly — without
 opening a game, and without needing Windows. Built for humans and AI
 assistants alike: same tools, same output, whether you're running them by
 hand or an agent is driving them as part of an automated workflow.
 
-These use the real ReShade FX compiler itself, not a re-implementation or
+These use the real ReshadeFX compiler itself, not a re-implementation or
 a guess at what would compile — so the answer you get is the answer ReShade
 itself would give.
 
@@ -22,14 +22,14 @@ codegen — the parts of the compiler that have no Windows dependency) and
 build three CLI tools from it:
 
 - **`reshadefx_cli`** — compiles a `.fx` file and reports the exact errors
-  the real ReShade FX compiler would give. Equivalent to the `ReShadeFXC`
+  the real ReshadeFX compiler would give. Equivalent to the `ReShadeFXC`
   tool that ships with ReShade itself.
 - **`reshadefx_stats`** — compiles a `.fx` file and additionally reports the
   real SPIR-V instruction count per shader stage (vertex/pixel/compute),
   useful for confirming an optimization actually reduced instruction count
   rather than just looking leaner.
 - **`reshadefx_rga`** — makes [RGA (Radeon GPU Analyzer)](https://github.com/GPUOpen-Tools/radeon_gpu_analyzer)
-  understand ReShade FX shaders directly. RGA only speaks raw HLSL/GLSL/SPIR-V
+  understand ReshadeFX shaders directly. RGA only speaks raw HLSL/GLSL/SPIR-V
   and has no idea what a `technique`/`pass` is or how to resolve
   `ReShade.fxh`; this tool compiles the `.fx` file with the real reshadefx
   frontend, extracts each shader stage as SPIR-V, and:
@@ -88,6 +88,35 @@ output instead of the human-readable text shown above:
 ./bin/reshadefx_stats --json -I path/to/reshade-shaders/Shaders myshader.fx
 # {"file":"myshader.fx","success":true,"entries":[...],"total_instructions":306}
 ```
+
+## Testing shaders under different ReShade conditions
+
+`reshadefx_stats` and `reshadefx_rga` accept four flags for the
+ReShade-specific macros a shader might branch on — a shader would not
+normally need to check these, but some do to work around known bugs or
+adjust for capabilities, so it's worth being able to test both branches:
+
+```bash
+--reshade-version <num>   # override __RESHADE__ (default: the version these
+                           # tools were built against; MAJOR*10000+MINOR*100+REVISION)
+--performance-mode        # set __RESHADE_PERFORMANCE_MODE__ to 1 (default: 0)
+--width <n>                # override BUFFER_WIDTH (default: 1920)
+--height <n>               # override BUFFER_HEIGHT (default: 1080)
+```
+
+`--performance-mode` is the one worth understanding, not just using. ReShade
+recompiles a shader with its uniform variables (normally used for editable
+UI settings) turned into `static const` values when performance mode is on.
+The compiler can sometimes fold and simplify the resulting math further than
+it could with a genuinely variable value — so the *same* shader can compile
+to meaningfully different, and sometimes faster, code in performance mode.
+That means a real performance picture has two numbers, not one: how it
+behaves in normal/edit mode (settings variable) and how it behaves in
+performance mode (settings locked to static) — and not every shader author
+remembers to check both. Occasionally a compiler bug surfaces in one mode
+but not the other, too, particularly in larger, more complex effects.
+
+## Building only some of the tools
 
 By default the build script builds all three tools. If you only need one or
 two — e.g. for a project like ShaderBridge where you only care whether a

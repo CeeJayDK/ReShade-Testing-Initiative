@@ -71,6 +71,9 @@ VER_NUMS="$(echo "$RESHADE_COMMIT" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "
 VER_MAJOR="$(echo "$VER_NUMS" | cut -d. -f1)"
 VER_MINOR="$(echo "$VER_NUMS" | cut -d. -f2)"
 VER_REV="$(echo "$VER_NUMS" | cut -d. -f3)"
+# 10#$X forces base-10 interpretation, in case a component ever has a leading
+# zero (bash would otherwise try, and fail, to parse it as octal).
+VER_NUM=$((10#$VER_MAJOR * 10000 + 10#$VER_MINOR * 100 + 10#$VER_REV))
 cat > "$WORK_DIR/reshade/res/version.h" << EOF
 #pragma once
 #define VERSION_MAJOR $VER_MAJOR
@@ -115,7 +118,7 @@ fi
 
 if [ "$WANT_STATS" -eq 1 ]; then
 	echo "Building reshadefx_stats ..."
-	g++ -std=c++17 -O2 "${INCLUDES[@]}" \
+	g++ -std=c++17 -O2 -DRESHADEFX_VERSION_NUM=$VER_NUM "${INCLUDES[@]}" \
 		source/effect_lexer.cpp source/effect_preprocessor.cpp \
 		source/effect_parser_exp.cpp source/effect_parser_stmt.cpp \
 		source/effect_symbol_table.cpp source/effect_expression.cpp \
@@ -126,7 +129,7 @@ fi
 
 if [ "$WANT_RGA" -eq 1 ]; then
 	echo "Building reshadefx_rga ..."
-	g++ -std=c++17 -O2 "${INCLUDES[@]}" \
+	g++ -std=c++17 -O2 -DRESHADEFX_VERSION_NUM=$VER_NUM "${INCLUDES[@]}" \
 		source/effect_lexer.cpp source/effect_preprocessor.cpp \
 		source/effect_parser_exp.cpp source/effect_parser_stmt.cpp \
 		source/effect_symbol_table.cpp source/effect_expression.cpp \

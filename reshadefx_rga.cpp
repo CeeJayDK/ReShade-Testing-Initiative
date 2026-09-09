@@ -197,7 +197,8 @@ static instruction_counts classify_spirv_instructions(const std::string &binary)
 static void print_usage(const char *path)
 {
 	std::cout <<
-		"usage: " << path << " [-D name=value] [-I path] [--rga <path-to-rga>] [--asic <name>]... [--json] <file.fx>\n\n"
+		"usage: " << path << " [-D name=value] [-I path] [--rga <path-to-rga>] [--asic <name>]... [--json]\n"
+		"       [--reshade-version <num>] [--performance-mode] [--width <n>] [--height <n>] <file.fx>\n\n"
 		"  -D <id>=<text>   Define a preprocessor macro. Repeatable.\n"
 		"  -I <path>        Add directory to include search path. Repeatable.\n"
 		"  --rga <path>     Path to the RGA (Radeon GPU Analyzer) executable.\n"
@@ -208,18 +209,34 @@ static void print_usage(const char *path)
 		"                   Defaults to gfx1100 (RDNA3) if --rga is given but no\n"
 		"                   --asic is specified.\n"
 		"  --json           Emit machine-readable JSON instead of the default\n"
-		"                   human-readable text.\n";
+		"                   human-readable text.\n"
+		"  --reshade-version <num>  Override the __RESHADE__ macro (default: the\n"
+		"                   version this binary was built against).\n"
+		"  --performance-mode       Set __RESHADE_PERFORMANCE_MODE__ to 1 (default: 0).\n"
+		"  --width <n>      Override the BUFFER_WIDTH macro (default: 1920).\n"
+		"  --height <n>     Override the BUFFER_HEIGHT macro (default: 1080).\n";
 }
+
+// Baked in by the build script from RESHADE_VERSION (MAJOR*10000 + MINOR*100
+// + REVISION, matching how ReShade itself computes __RESHADE__). Falls back
+// to a placeholder if compiled directly without that define.
+#ifndef RESHADEFX_VERSION_NUM
+#define RESHADEFX_VERSION_NUM 60000
+#endif
 
 int main(int argc, char *argv[])
 {
 	reshadefx::preprocessor pp;
-	pp.add_macro_definition("__RESHADE__", "60000");
-	pp.add_macro_definition("__RESHADE_PERFORMANCE_MODE__", "0");
-	pp.add_macro_definition("BUFFER_WIDTH", "1920");
-	pp.add_macro_definition("BUFFER_HEIGHT", "1080");
-	pp.add_macro_definition("BUFFER_RCP_WIDTH", "(1.0 / BUFFER_WIDTH)");
-	pp.add_macro_definition("BUFFER_RCP_HEIGHT", "(1.0 / BUFFER_HEIGHT)");
+
+	// Defaults for the four ReShade-specific macros a shader might branch on.
+	// Applied AFTER argument parsing below (mirroring how crosire's own
+	// fxc.cpp does this) - add_macro_definition() silently keeps whichever
+	// value was added FIRST for a given name, so a user override must reach
+	// the preprocessor before these defaults do, not after.
+	std::string reshade_version = std::to_string(RESHADEFX_VERSION_NUM);
+	bool performance_mode = false;
+	std::string buffer_width = "1920";
+	std::string buffer_height = "1080";
 
 	const char *source_file = nullptr;
 	std::string rga_path;
@@ -259,6 +276,22 @@ int main(int argc, char *argv[])
 		{
 			json_output = true;
 		}
+		else if (arg == "--reshade-version" && i + 1 < argc)
+		{
+			reshade_version = argv[++i];
+		}
+		else if (arg == "--performance-mode")
+		{
+			performance_mode = true;
+		}
+		else if (arg == "--width" && i + 1 < argc)
+		{
+			buffer_width = argv[++i];
+		}
+		else if (arg == "--height" && i + 1 < argc)
+		{
+			buffer_height = argv[++i];
+		}
 		else
 		{
 			source_file = argv[i];
@@ -272,6 +305,16 @@ int main(int argc, char *argv[])
 	}
 	if (!rga_path.empty() && asics.empty())
 		asics.push_back("gfx1100");
+
+	// Apply defaults now, after parsing - see comment above main() for why
+	// this order matters (a redefinition with a different value is silently
+	// rejected, so any user override must be added to `pp` first).
+	pp.add_macro_definition("__RESHADE__", reshade_version);
+	pp.add_macro_definition("__RESHADE_PERFORMANCE_MODE__", performance_mode ? "1" : "0");
+	pp.add_macro_definition("BUFFER_WIDTH", buffer_width);
+	pp.add_macro_definition("BUFFER_HEIGHT", buffer_height);
+	pp.add_macro_definition("BUFFER_RCP_WIDTH", "(1.0 / BUFFER_WIDTH)");
+	pp.add_macro_definition("BUFFER_RCP_HEIGHT", "(1.0 / BUFFER_HEIGHT)");
 
 	if (!pp.append_file(source_file))
 	{
