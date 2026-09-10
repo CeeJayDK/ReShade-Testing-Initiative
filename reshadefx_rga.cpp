@@ -327,7 +327,7 @@ int main(int argc, char *argv[])
 	}
 
 	std::unique_ptr<reshadefx::codegen> backend(
-		reshadefx::create_codegen_spirv(false, false, false, false));
+		reshadefx::create_codegen_spirv(false, false, performance_mode, false));
 
 	reshadefx::parser parser;
 	if (!parser.parse(pp.output(), backend.get()))
