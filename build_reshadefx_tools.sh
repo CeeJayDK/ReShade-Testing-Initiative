@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
-# Builds three Linux CLI tools from crosire/reshade's real, unmodified
+# Builds two Linux CLI tools from crosire/reshade's real, unmodified
 # reshadefx compiler source (lexer, preprocessor, parser, symbol table,
 # HLSL/GLSL/SPIR-V codegen). No Wine, no Windows dependency.
 #
 #   reshadefx_cli   - drop-in equivalent of the ReShadeFXC tool:
 #                      compile a .fx file, report real compiler errors.
-#   reshadefx_stats - compiles a .fx file and reports real SPIR-V
-#                      instruction counts per shader entry point, for
-#                      before/after optimization comparisons.
 #   reshadefx_rga   - makes RGA (Radeon GPU Analyzer) understand ReShade
-#                      FX shaders, for real GPU ISA / register analysis.
+#                      FX shaders, for real GPU ISA / register analysis;
+#                      its built-in SPIR-V instruction classification also
+#                      covers before/after optimization comparisons without
+#                      needing RGA itself.
 #
 # Only the DXBC/DXIL backends are excluded (they call into Microsoft's
 # D3DCompiler and are Windows-only). They are not needed to validate a
 # port: HLSL/GLSL/SPIR-V codegen already proves the shader is valid.
 #
-# Usage: ./build_reshadefx_tools.sh [output_dir] [--cli] [--stats] [--rga]
+# Usage: ./build_reshadefx_tools.sh [output_dir] [--cli] [--rga]
 #
-# By default (no --cli/--stats/--rga given), all three are built. Pass any
-# combination of those flags to build only a subset - e.g. if you only care
-# about compile-correctness checking for a project like ShaderBridge and
-# have no use for the optimization-focused stats/rga tools:
+# By default (no --cli/--rga given), both are built. Pass either flag to
+# build only one - e.g. if you only care about compile-correctness checking
+# for a project like ShaderBridge and have no use for the
+# optimization-focused rga tool:
 #   ./build_reshadefx_tools.sh --cli
 set -euo pipefail
 
@@ -32,15 +32,12 @@ fi
 
 OUT_DIR=""
 WANT_CLI=0
-WANT_STATS=0
 WANT_RGA=0
 ANY_SELECTED=0
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--cli)
 			WANT_CLI=1; ANY_SELECTED=1; shift ;;
-		--stats)
-			WANT_STATS=1; ANY_SELECTED=1; shift ;;
 		--rga)
 			WANT_RGA=1; ANY_SELECTED=1; shift ;;
 		*)
@@ -49,7 +46,6 @@ while [ $# -gt 0 ]; do
 done
 if [ "$ANY_SELECTED" -eq 0 ]; then
 	WANT_CLI=1
-	WANT_STATS=1
 	WANT_RGA=1
 fi
 OUT_DIR="${OUT_DIR:-$SCRIPT_DIR/bin}"
@@ -116,17 +112,6 @@ if [ "$WANT_CLI" -eq 1 ]; then
 		-o "$OUT_DIR/reshadefx_cli"
 fi
 
-if [ "$WANT_STATS" -eq 1 ]; then
-	echo "Building reshadefx_stats ..."
-	g++ -std=c++17 -O2 -DRESHADEFX_VERSION_NUM=$VER_NUM "${INCLUDES[@]}" \
-		source/effect_lexer.cpp source/effect_preprocessor.cpp \
-		source/effect_parser_exp.cpp source/effect_parser_stmt.cpp \
-		source/effect_symbol_table.cpp source/effect_expression.cpp \
-		source/effect_codegen_spirv.cpp \
-		"$SCRIPT_DIR/reshadefx_stats.cpp" \
-		-o "$OUT_DIR/reshadefx_stats"
-fi
-
 if [ "$WANT_RGA" -eq 1 ]; then
 	echo "Building reshadefx_rga ..."
 	g++ -std=c++17 -O2 -DRESHADEFX_VERSION_NUM=$VER_NUM "${INCLUDES[@]}" \
@@ -140,7 +125,6 @@ fi
 
 echo "Done. Binaries in $OUT_DIR"
 [ "$WANT_CLI" -eq 1 ] && echo "Example: $OUT_DIR/reshadefx_cli --hlsl -I path/to/reshade-shaders/Shaders -Fo out.hlsl myshader.fx"
-[ "$WANT_STATS" -eq 1 ] && echo "Example: $OUT_DIR/reshadefx_stats -I path/to/reshade-shaders/Shaders myshader.fx"
 if [ "$WANT_RGA" -eq 1 ]; then
 	echo "Example: $OUT_DIR/reshadefx_rga -I path/to/reshade-shaders/Shaders myshader.fx"
 	echo "Example: $OUT_DIR/reshadefx_rga -I path/to/reshade-shaders/Shaders --rga /path/to/rga --asic gfx1100 myshader.fx"

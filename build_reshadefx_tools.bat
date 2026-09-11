@@ -1,18 +1,18 @@
 @echo off
 setlocal enabledelayedexpansion
-REM Builds reshadefx_cli.exe, reshadefx_stats.exe, and reshadefx_rga.exe from
-REM crosire/reshade's real, unmodified compiler source, using MinGW-w64.
+REM Builds reshadefx_cli.exe and reshadefx_rga.exe from crosire/reshade's
+REM real, unmodified compiler source, using MinGW-w64.
 REM
 REM Requires: git, and a MinGW-w64 g++ (x86_64) on PATH.
 REM   Easiest install: https://winlibs.com (download, unzip, add its bin\ to PATH)
 REM   or via MSYS2: pacman -S mingw-w64-x86_64-gcc
 REM
-REM Usage: build_reshadefx_tools.bat [output_dir] [--cli] [--stats] [--rga]
+REM Usage: build_reshadefx_tools.bat [output_dir] [--cli] [--rga]
 REM
-REM By default (no --cli/--stats/--rga given), all three are built. Pass any
-REM combination of those flags to build only a subset - e.g. if you only care
-REM about compile-correctness checking for a project like ShaderBridge and
-REM have no use for the optimization-focused stats/rga tools:
+REM By default (no --cli/--rga given), both are built. Pass either flag to
+REM build only one - e.g. if you only care about compile-correctness
+REM checking for a project like ShaderBridge and have no use for the
+REM optimization-focused rga tool:
 REM   build_reshadefx_tools.bat --cli
 
 set "RESHADE_COMMIT=358c345ca2fe64f86e67c694f8379c356627adcb"
@@ -23,7 +23,6 @@ if exist "%SCRIPT_DIR%RESHADE_VERSION" (
 
 set "OUT_DIR="
 set "WANT_CLI=0"
-set "WANT_STATS=0"
 set "WANT_RGA=0"
 set "ANY_SELECTED=0"
 
@@ -31,12 +30,6 @@ set "ANY_SELECTED=0"
 if "%~1"=="" goto args_done
 if /I "%~1"=="--cli" (
 	set "WANT_CLI=1"
-	set "ANY_SELECTED=1"
-	shift
-	goto parse_args
-)
-if /I "%~1"=="--stats" (
-	set "WANT_STATS=1"
 	set "ANY_SELECTED=1"
 	shift
 	goto parse_args
@@ -54,7 +47,6 @@ goto parse_args
 
 if "%ANY_SELECTED%"=="0" (
 	set "WANT_CLI=1"
-	set "WANT_STATS=1"
 	set "WANT_RGA=1"
 )
 if "%OUT_DIR%"=="" set "OUT_DIR=%SCRIPT_DIR%bin"
@@ -139,15 +131,6 @@ if "%WANT_CLI%"=="1" (
 	if errorlevel 1 exit /b 1
 )
 
-if "%WANT_STATS%"=="1" (
-	echo Building reshadefx_stats.exe ...
-	g++ -std=c++17 -O2 -DRESHADEFX_VERSION_NUM=%VER_NUM% -static -include share.h %INCLUDES% ^
-		%COMMON_SRC% source\effect_codegen_spirv.cpp ^
-		"%SCRIPT_DIR%reshadefx_stats.cpp" ^
-		-o "%OUT_DIR%\reshadefx_stats.exe"
-	if errorlevel 1 exit /b 1
-)
-
 if "%WANT_RGA%"=="1" (
 	echo Building reshadefx_rga.exe ...
 	g++ -std=c++17 -O2 -DRESHADEFX_VERSION_NUM=%VER_NUM% -static -include share.h %INCLUDES% ^
@@ -162,5 +145,4 @@ rmdir /s /q "%WORK_DIR%"
 
 echo Done. Binaries in %OUT_DIR%
 if "%WANT_CLI%"=="1" echo Example: %OUT_DIR%\reshadefx_cli.exe --hlsl -I path\to\reshade-shaders\Shaders -Fo out.hlsl myshader.fx
-if "%WANT_STATS%"=="1" echo Example: %OUT_DIR%\reshadefx_stats.exe -I path\to\reshade-shaders\Shaders myshader.fx
 if "%WANT_RGA%"=="1" echo Example: %OUT_DIR%\reshadefx_rga.exe -I path\to\reshade-shaders\Shaders --rga path\to\rga.exe --asic gfx1100 myshader.fx

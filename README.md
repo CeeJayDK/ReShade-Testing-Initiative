@@ -19,15 +19,11 @@ itself would give.
 pinned commit of [crosire/reshade](https://github.com/crosire/reshade)'s own
 source (the lexer, preprocessor, parser, symbol table, and HLSL/GLSL/SPIR-V
 codegen — the parts of the compiler that have no Windows dependency) and
-build three CLI tools from it:
+build two CLI tools from it:
 
 - **`reshadefx_cli`** — compiles a `.fx` file and reports the exact errors
   the real ReshadeFX compiler would give. Equivalent to the `ReShadeFXC`
   tool that ships with ReShade itself.
-- **`reshadefx_stats`** — compiles a `.fx` file and additionally reports the
-  real SPIR-V instruction count per shader stage (vertex/pixel/compute),
-  useful for confirming an optimization actually reduced instruction count
-  rather than just looking leaner.
 - **`reshadefx_rga`** — makes [RGA (Radeon GPU Analyzer)](https://github.com/GPUOpen-Tools/radeon_gpu_analyzer)
   understand ReshadeFX shaders directly. RGA only speaks raw HLSL/GLSL/SPIR-V
   and has no idea what a `technique`/`pass` is or how to resolve
@@ -37,21 +33,24 @@ build three CLI tools from it:
     (cheap ALU / transcendental / texture / control-flow / memory), classified
     directly from the actual SPIR-V opcode stream — a vendor-general proxy
     for "which parts of this shader are expensive," useful with no other
-    tools installed;
+    tools installed, and enough on its own to confirm an optimization
+    actually reduced instruction count rather than just looking leaner;
   - if you point it at an installed copy of RGA with `--rga <path> --asic
     <name>`, it additionally reports genuine AMD GPU ISA size and real
     VGPR/SGPR register usage for a real, named GPU — actual hardware data,
-    not a heuristic.
+    not a heuristic;
+  - can load or save a small settings file to exercise a uniform value other
+    than the shader's own hardcoded default — see
+    [Testing shaders under different ReShade conditions](#testing-shaders-under-different-reshade-conditions)
+    below.
 
-`reshadefx_stats` and `reshadefx_rga` both accept `--json` for
-machine-readable output (structured compile diagnostics with
-file/line/column/code, and named numeric fields instead of text) — useful
-when something else is going to parse the result rather than a human reading
-it directly. `reshadefx_cli` deliberately stays plain text only — it's built
-from crosire's own unmodified `tools/fxc.cpp`, fetched fresh every build, so
-patching a `--json` flag into it would mean re-patching on every ReShade
-version bump. `reshadefx_stats` covers the same compile-checking use case
-and already has structured error output.
+`reshadefx_rga` accepts `--json` for machine-readable output (structured
+compile diagnostics with file/line/column/code, and named numeric fields
+instead of text) — useful when something else is going to parse the result
+rather than a human reading it directly. `reshadefx_cli` deliberately stays
+plain text only — it's built from crosire's own unmodified `tools/fxc.cpp`,
+fetched fresh every build, so patching a `--json` flag into it would mean
+re-patching on every ReShade version bump.
 
 The DXBC/DXIL backends are intentionally excluded — they call into
 Microsoft's D3DCompiler and are Windows-only — but they aren't needed to
@@ -63,14 +62,12 @@ shader is valid.
 ```bash
 ./build_reshadefx_tools.sh          # builds into ./bin (Windows: build_reshadefx_tools.bat)
 ./bin/reshadefx_cli --hlsl -I path/to/reshade-shaders/Shaders -Fo out.hlsl myshader.fx
-./bin/reshadefx_stats -I path/to/reshade-shaders/Shaders myshader.fx
 ./bin/reshadefx_rga -I path/to/reshade-shaders/Shaders myshader.fx
 ```
 
-All three tools accept `-I <path>` for include directories (e.g. the
-standard [reshade-shaders](https://github.com/crosire/reshade-shaders) repo,
-if your effect includes `ReShade.fxh`) and `-D name=value` for preprocessor
-macros.
+Both tools accept `-I <path>` for include directories (e.g. the standard
+[reshade-shaders](https://github.com/crosire/reshade-shaders) repo, if your
+effect includes `ReShade.fxh`) and `-D name=value` for preprocessor macros.
 
 For real GPU ISA instead of just the built-in instruction classification,
 point `reshadefx_rga` at an installed copy of RGA (download from its
@@ -81,20 +78,19 @@ point `reshadefx_rga` at an installed copy of RGA (download from its
 ./bin/reshadefx_rga -I path/to/reshade-shaders/Shaders --rga path/to/rga --asic gfx1100 myshader.fx
 ```
 
-Add `--json` to `reshadefx_stats` or `reshadefx_rga` for machine-readable
-output instead of the human-readable text shown above:
+Add `--json` for machine-readable output instead of the human-readable text
+shown above:
 
 ```bash
-./bin/reshadefx_stats --json -I path/to/reshade-shaders/Shaders myshader.fx
-# {"file":"myshader.fx","success":true,"entries":[...],"total_instructions":306}
+./bin/reshadefx_rga --json -I path/to/reshade-shaders/Shaders myshader.fx
 ```
 
 ## Testing shaders under different ReShade conditions
 
-`reshadefx_stats` and `reshadefx_rga` accept four flags for the
-ReShade-specific macros a shader might branch on — a shader would not
-normally need to check these, but some do to work around known bugs or
-adjust for capabilities, so it's worth being able to test both branches:
+`reshadefx_rga` accepts four flags for the ReShade-specific macros a shader
+might branch on — a shader would not normally need to check these, but some
+do to work around known bugs or adjust for capabilities, so it's worth being
+able to test both branches:
 
 ```bash
 --reshade-version <num>   # override __RESHADE__ (default: the version these
@@ -116,16 +112,45 @@ performance mode (settings locked to static) — and not every shader author
 remembers to check both. Occasionally a compiler bug surfaces in one mode
 but not the other, too, particularly in larger, more complex effects.
 
+By default, performance mode exercises whatever values the shader's own
+`uniform` declarations already default to. To test a *different* value — the
+other side of an `if` a uniform guards, for instance — use:
+
+```bash
+--load-settings[=<path>]   # read plain-numeric uniform overrides from a
+                             # ReShade-preset-format file (a real ReShade
+                             # preset works too) and apply them before
+                             # compiling. Implies --performance-mode, since
+                             # that's the only mode where a uniform's value
+                             # becomes part of the compiled code rather than
+                             # a runtime-editable buffer entry.
+--save-settings[=<path>]   # scan the shader's own uniform defaults and
+                             # write them out in that same format, then
+                             # continue to compile as normal.
+```
+
+Leaving off `=<path>` for either flag defaults to `<effect-name>.ini`
+alongside the shader — so `reshadefx_rga --save-settings levels.fx` writes
+`levels.ini` next to it, and a later `reshadefx_rga --load-settings
+levels.fx` picks that same file back up. Hand-edit the saved file (or point
+`--load-settings` at a real ReShade preset) to try a different value:
+
+```bash
+./bin/reshadefx_rga --save-settings levels.fx    # writes levels.ini
+# edit levels.ini, e.g. change some_mode=0 to some_mode=1
+./bin/reshadefx_rga --load-settings levels.fx    # compiles with that override
+```
+
 ## Building only some of the tools
 
-By default the build script builds all three tools. If you only need one or
-two — e.g. for a project like ShaderBridge where you only care whether a
-port compiles correctly and have no use for the optimization-focused
-stats/rga tools — pass any combination of `--cli`, `--stats`, `--rga`:
+By default the build script builds both tools. If you only need one — e.g.
+for a project like ShaderBridge where you only care whether a port compiles
+correctly and have no use for the optimization-focused rga tool — pass
+`--cli` or `--rga`:
 
 ```bash
 ./build_reshadefx_tools.sh --cli              # just the compiler
-./build_reshadefx_tools.sh --stats --rga      # skip the plain compiler
+./build_reshadefx_tools.sh --rga              # just rga
 ```
 
 Don't want to build anything? Every push to `main` builds and functional-tests
