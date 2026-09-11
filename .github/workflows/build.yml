@@ -39,7 +39,6 @@ jobs:
           }
           EOF
           ./bin/reshadefx_cli --hlsl -I "$RUNNER_TEMP/reshade-shaders/Shaders" -Fo "$RUNNER_TEMP/out.hlsl" "$RUNNER_TEMP/test.fx"
-          ./bin/reshadefx_stats -I "$RUNNER_TEMP/reshade-shaders/Shaders" "$RUNNER_TEMP/test.fx"
           ./bin/reshadefx_rga -I "$RUNNER_TEMP/reshade-shaders/Shaders" "$RUNNER_TEMP/test.fx"
 
       - uses: actions/upload-artifact@v7
@@ -80,8 +79,6 @@ jobs:
           }
           '@ | Set-Content -Path "$env:RUNNER_TEMP\test.fx"
           & ".\bin\reshadefx_cli.exe" --hlsl -I "$env:RUNNER_TEMP\reshade-shaders\Shaders" -Fo "$env:RUNNER_TEMP\out.hlsl" "$env:RUNNER_TEMP\test.fx"
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          & ".\bin\reshadefx_stats.exe" -I "$env:RUNNER_TEMP\reshade-shaders\Shaders" "$env:RUNNER_TEMP\test.fx"
           if ($LASTEXITCODE -ne 0) { exit 1 }
           & ".\bin\reshadefx_rga.exe" -I "$env:RUNNER_TEMP\reshade-shaders\Shaders" "$env:RUNNER_TEMP\test.fx"
           if ($LASTEXITCODE -ne 0) { exit 1 }
