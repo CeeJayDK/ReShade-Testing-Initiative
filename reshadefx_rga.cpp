@@ -22,6 +22,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cctype>
+#include <algorithm>
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -198,7 +200,9 @@ static void print_usage(const char *path)
 {
 	std::cout <<
 		"usage: " << path << " [-D name=value] [-I path] [--rga <path-to-rga>] [--asic <name>]... [--json]\n"
-		"       [--reshade-version <num>] [--performance-mode] [--width <n>] [--height <n>] <file.fx>\n\n"
+		"       [--reshade-version <num>] [--perf]\n"
+		"       [--load-settings[=<path>]] [--save-settings[=<path>]]\n"
+		"       [--width <n>] [--height <n>] <file.fx>\n\n"
 		"  -D <id>=<text>   Define a preprocessor macro. Repeatable.\n"
 		"  -I <path>        Add directory to include search path. Repeatable.\n"
 		"  --rga <path>     Path to the RGA (Radeon GPU Analyzer) executable.\n"
@@ -212,7 +216,18 @@ static void print_usage(const char *path)
 		"                   human-readable text.\n"
 		"  --reshade-version <num>  Override the __RESHADE__ macro (default: the\n"
 		"                   version this binary was built against).\n"
-		"  --performance-mode       Set __RESHADE_PERFORMANCE_MODE__ to 1 (default: 0).\n"
+		"  --perf                   Set __RESHADE_PERFORMANCE_MODE__ to 1 (default: 0).\n"
+		"  --load-settings[=<path>] ReShade-preset-format file (or a real ReShade\n"
+		"                   preset) to read plain-numeric uniform overrides from,\n"
+		"                   applied to the source before compiling. Implies\n"
+		"                   --perf, since that's the only mode where a\n"
+		"                   uniform's value becomes part of the compiled code.\n"
+		"                   Without =<path>, defaults to \"<effect-name>.ini\"\n"
+		"                   alongside the shader.\n"
+		"  --save-settings[=<path>] Scan the shader's own uniform defaults and write\n"
+		"                   them out in ReShade preset format, then continue to\n"
+		"                   compile as normal. Without =<path>, defaults to\n"
+		"                   \"<effect-name>.ini\" alongside the shader.\n"
 		"  --width <n>      Override the BUFFER_WIDTH macro (default: 1920).\n"
 		"  --height <n>     Override the BUFFER_HEIGHT macro (default: 1080).\n";
 }
@@ -223,6 +238,257 @@ static void print_usage(const char *path)
 #ifndef RESHADEFX_VERSION_NUM
 #define RESHADEFX_VERSION_NUM 60000
 #endif
+
+// Reads the "[effect_filename]" section of a ReShade-preset-format settings
+// file (same on-disk format real ReShade uses for presets - see
+// source/ini_file.cpp: one "key=value1,value2,..." line per uniform, ","
+// separates components, ",," is an escaped literal comma). Only the section
+// matching this shader's own filename is read; everything else (other
+// effects' sections, [PRESET], techniques, etc.) is ignored, so a genuine
+// multi-effect ReShade preset file can be pointed at directly.
+static std::map<std::string, std::vector<std::string>> parse_settings_file(const fs::path &settings_path, const std::string &effect_filename)
+{
+	std::map<std::string, std::vector<std::string>> result;
+
+	std::ifstream file(settings_path);
+	if (!file)
+		return result;
+
+	const auto trim = [](std::string s) {
+		const size_t begin = s.find_first_not_of(" \t");
+		if (begin == std::string::npos)
+			return std::string();
+		const size_t end = s.find_last_not_of(" \t\r\n");
+		return s.substr(begin, end - begin + 1);
+	};
+
+	std::string line;
+	bool in_target_section = false;
+	while (std::getline(file, line))
+	{
+		line = trim(line);
+		if (line.empty())
+			continue;
+
+		if (line.front() == '[' && line.back() == ']')
+		{
+			in_target_section = (line.substr(1, line.size() - 2) == effect_filename);
+			continue;
+		}
+
+		if (!in_target_section)
+			continue;
+
+		const size_t eq = line.find('=');
+		if (eq == std::string::npos)
+			continue;
+
+		const std::string key = trim(line.substr(0, eq));
+		const std::string value = line.substr(eq + 1);
+
+		// Split on unescaped commas, treating ",," as one literal comma -
+		// mirrors the parsing in crosire/reshade's source/ini_file.cpp.
+		std::vector<std::string> components;
+		std::string current;
+		for (size_t i = 0; i < value.size(); ++i)
+		{
+			if (value[i] == ',')
+			{
+				if (i + 1 < value.size() && value[i + 1] == ',')
+				{
+					current += ',';
+					++i;
+				}
+				else
+				{
+					components.push_back(trim(current));
+					current.clear();
+				}
+			}
+			else
+			{
+				current += value[i];
+			}
+		}
+		components.push_back(trim(current));
+
+		result[key] = std::move(components);
+	}
+
+	return result;
+}
+
+// Replaces the plain-number default value of matching "uniform <type> <name>
+// ... = <value>;" declarations with values from a settings file, directly in
+// the source text, before it is handed to the preprocessor/parser.
+//
+// This is necessary rather than cosmetic: reshadefx's SPIR-V backend bakes a
+// uniform's default straight into the emitted OpSpecConstant literal at parse
+// time (effect_codegen_spirv.cpp, define_uniform()) and never reads it back
+// afterward, so mutating codegen->module().spec_constants after the fact (the
+// way ReShade's own runtime.cpp does for its preset system) has no effect on
+// the SPIR-V this tool emits - real ReShade instead overrides the value via
+// the graphics API's specialization-constant mechanism at pipeline-creation
+// time, which is downstream of anything this tool touches. Rewriting the
+// literal in the source before parsing is the only way to actually exercise
+// a different performance-mode code path here.
+//
+// Only handles plain numeric literals (matching ReShade's own preset format,
+// which cannot represent arbitrary expressions either) - annotation blocks
+// ("< ... >") are skipped over structurally so a ";" or ">" inside a quoted
+// annotation string does not confuse the scan, but the default-value
+// expression itself is located purely by bracket/quote depth, not parsed.
+static std::string apply_settings_to_source(std::string source, const std::map<std::string, std::vector<std::string>> &settings)
+{
+	if (settings.empty())
+		return source;
+
+	const auto skip_ws = [&](size_t p) {
+		while (p < source.size() && std::isspace(static_cast<unsigned char>(source[p])))
+			++p;
+		return p;
+	};
+	const auto read_identifier = [&](size_t p) {
+		const size_t start = p;
+		while (p < source.size() && (std::isalnum(static_cast<unsigned char>(source[p])) || source[p] == '_'))
+			++p;
+		return source.substr(start, p - start);
+	};
+	// Advances 'p' past a string literal (if one starts there) or one
+	// character otherwise; used to keep quote contents from confusing the
+	// bracket/paren depth tracking below.
+	const auto skip_string_or_char = [&](size_t p) {
+		if (p < source.size() && source[p] == '"')
+		{
+			++p;
+			while (p < source.size() && source[p] != '"')
+				p += (source[p] == '\\' && p + 1 < source.size()) ? 2 : 1;
+			if (p < source.size())
+				++p; // closing quote
+			return p;
+		}
+		return p + 1;
+	};
+
+	size_t pos = 0;
+	while ((pos = source.find("uniform", pos)) != std::string::npos)
+	{
+		size_t i = pos + 7; // length of "uniform"
+
+		// Require a word boundary so this doesn't match part of a longer
+		// identifier (e.g. a variable literally named "uniformity").
+		if (i >= source.size() || !std::isspace(static_cast<unsigned char>(source[i])))
+		{
+			pos += 7;
+			continue;
+		}
+
+		i = skip_ws(i);
+		const std::string type_name = read_identifier(i);
+		i += type_name.size();
+		i = skip_ws(i);
+		const std::string var_name = read_identifier(i);
+		i += var_name.size();
+
+		if (type_name.empty() || var_name.empty())
+		{
+			pos += 7;
+			continue;
+		}
+
+		const auto settings_it = settings.find(var_name);
+
+		// Skip an optional array size "[N]".
+		i = skip_ws(i);
+		if (i < source.size() && source[i] == '[')
+		{
+			const size_t close = source.find(']', i);
+			if (close == std::string::npos)
+				break; // malformed source - stop rather than misparse further
+			i = close + 1;
+		}
+
+		// Skip an optional annotation block "< ... >", tracking nested
+		// angle brackets and quoted strings so a ">" or ";" inside e.g.
+		// ui_tooltip = "a; b > c"; does not end the block early.
+		i = skip_ws(i);
+		if (i < source.size() && source[i] == '<')
+		{
+			int depth = 0;
+			do
+			{
+				if (source[i] == '"')
+					i = skip_string_or_char(i);
+				else
+				{
+					if (source[i] == '<')
+						++depth;
+					else if (source[i] == '>')
+						--depth;
+					++i;
+				}
+			} while (i < source.size() && depth > 0);
+		}
+
+		i = skip_ws(i);
+
+		if (i < source.size() && source[i] == '=' && settings_it != settings.end())
+		{
+			const size_t value_start = i + 1;
+
+			// Find the terminating top-level ";" - skipping over parens
+			// (vector/matrix constructor syntax, e.g. "float3(1, 2, 3)")
+			// and quoted strings so nothing inside those ends the scan early.
+			size_t j = value_start;
+			int paren_depth = 0;
+			while (j < source.size())
+			{
+				if (source[j] == '"')
+					j = skip_string_or_char(j);
+				else if (source[j] == '(')
+					{ ++paren_depth; ++j; }
+				else if (source[j] == ')')
+					{ --paren_depth; ++j; }
+				else if (source[j] == ';' && paren_depth == 0)
+					break;
+				else
+					++j;
+			}
+
+			if (j < source.size()) // found the terminating ';'
+			{
+				const std::vector<std::string> &values = settings_it->second;
+				std::string replacement;
+				if (values.size() == 1)
+				{
+					replacement = values[0];
+				}
+				else
+				{
+					replacement = type_name + "(";
+					for (size_t k = 0; k < values.size(); ++k)
+					{
+						if (k != 0)
+							replacement += ", ";
+						replacement += values[k];
+					}
+					replacement += ")";
+				}
+
+				source.replace(value_start, j - value_start, replacement);
+				i = value_start + replacement.size();
+			}
+			else
+			{
+				i = j;
+			}
+		}
+
+		pos = i;
+	}
+
+	return source;
+}
 
 int main(int argc, char *argv[])
 {
@@ -242,6 +508,17 @@ int main(int argc, char *argv[])
 	std::string rga_path;
 	std::vector<std::string> asics;
 	bool json_output = false;
+	bool load_settings_requested = false;
+	std::string settings_load_path;
+	bool save_settings_requested = false;
+	std::string settings_save_path;
+
+	// -D/-I are collected here rather than applied straight to `pp`, because
+	// --save-settings runs its own independent scan-only preprocess/parse
+	// pass (see below) that needs the same user-supplied defines/include
+	// paths as the main compile.
+	std::vector<std::pair<std::string, std::string>> user_defines;
+	std::vector<std::string> user_include_paths;
 
 	for (int i = 1; i < argc; ++i)
 	{
@@ -256,13 +533,13 @@ int main(int argc, char *argv[])
 			std::string def = argv[++i];
 			const size_t eq = def.find('=');
 			if (eq != std::string::npos)
-				pp.add_macro_definition(def.substr(0, eq), def.substr(eq + 1));
+				user_defines.emplace_back(def.substr(0, eq), def.substr(eq + 1));
 			else
-				pp.add_macro_definition(def, "1");
+				user_defines.emplace_back(def, "1");
 		}
 		else if (arg == "-I" && i + 1 < argc)
 		{
-			pp.add_include_path(argv[++i]);
+			user_include_paths.push_back(argv[++i]);
 		}
 		else if (arg == "--rga" && i + 1 < argc)
 		{
@@ -280,9 +557,33 @@ int main(int argc, char *argv[])
 		{
 			reshade_version = argv[++i];
 		}
-		else if (arg == "--performance-mode")
+		else if (arg == "--perf")
 		{
 			performance_mode = true;
+		}
+		// "--load-settings"/"--save-settings" alone use the default
+		// "<effect-stem>.ini" path (filled in below, once source_file is
+		// known); "=<path>" gives an explicit one. Plain space-separated
+		// "--load-settings <path>" isn't supported for these two, since an
+		// optional value can't be told apart from the positional <file.fx>
+		// argument that always follows it.
+		else if (arg == "--load-settings")
+		{
+			load_settings_requested = true;
+		}
+		else if (arg.rfind("--load-settings=", 0) == 0)
+		{
+			load_settings_requested = true;
+			settings_load_path = arg.substr(std::strlen("--load-settings="));
+		}
+		else if (arg == "--save-settings")
+		{
+			save_settings_requested = true;
+		}
+		else if (arg.rfind("--save-settings=", 0) == 0)
+		{
+			save_settings_requested = true;
+			settings_save_path = arg.substr(std::strlen("--save-settings="));
 		}
 		else if (arg == "--width" && i + 1 < argc)
 		{
@@ -306,9 +607,29 @@ int main(int argc, char *argv[])
 	if (!rga_path.empty() && asics.empty())
 		asics.push_back("gfx1100");
 
+	const std::string effect_filename = fs::path(source_file).filename().u8string();
+	// "levels.fx" -> "levels.ini" alongside it, when no explicit path was
+	// given to --load-settings/--save-settings.
+	const std::string default_settings_path = (fs::path(source_file).parent_path() / (fs::path(source_file).stem().u8string() + ".ini")).u8string();
+	if (load_settings_requested && settings_load_path.empty())
+		settings_load_path = default_settings_path;
+	if (save_settings_requested && settings_save_path.empty())
+		settings_save_path = default_settings_path;
+
+	// A settings file only has any effect at all in performance mode (that's
+	// the only mode where a uniform's value becomes part of the compiled
+	// code rather than a runtime-editable buffer entry) - so using one
+	// implies performance mode rather than requiring both flags.
+	if (load_settings_requested)
+		performance_mode = true;
+
 	// Apply defaults now, after parsing - see comment above main() for why
 	// this order matters (a redefinition with a different value is silently
 	// rejected, so any user override must be added to `pp` first).
+	for (const auto &[name, value] : user_defines)
+		pp.add_macro_definition(name, value);
+	for (const std::string &path : user_include_paths)
+		pp.add_include_path(path);
 	pp.add_macro_definition("__RESHADE__", reshade_version);
 	pp.add_macro_definition("__RESHADE_PERFORMANCE_MODE__", performance_mode ? "1" : "0");
 	pp.add_macro_definition("BUFFER_WIDTH", buffer_width);
@@ -316,7 +637,135 @@ int main(int argc, char *argv[])
 	pp.add_macro_definition("BUFFER_RCP_WIDTH", "(1.0 / BUFFER_WIDTH)");
 	pp.add_macro_definition("BUFFER_RCP_HEIGHT", "(1.0 / BUFFER_HEIGHT)");
 
-	if (!pp.append_file(source_file))
+	// Read the source into memory ourselves whenever either settings flag is
+	// in play - --load-settings needs to patch it before preprocessing, and
+	// --save-settings needs the untouched original to scan.
+	std::string original_source_text;
+	if (load_settings_requested || save_settings_requested)
+	{
+		std::ifstream source_stream(source_file, std::ios::binary);
+		if (!source_stream)
+		{
+			if (json_output)
+				std::cout << "{\"file\":\"" << json_escape(source_file) << "\",\"success\":false,"
+					<< "\"stage\":\"read\",\"error\":\"could not open file\"}\n";
+			else
+				std::cout << "error: could not open " << source_file << std::endl;
+			return 1;
+		}
+		std::ostringstream source_buffer;
+		source_buffer << source_stream.rdbuf();
+		original_source_text = source_buffer.str();
+	}
+
+	if (save_settings_requested)
+	{
+		// Independent scan-only preprocess+parse pass: same user -D/-I and
+		// the four ReShade macros as the main compile (so #if-guarded
+		// uniforms resolve the same way), but always with
+		// uniforms_to_spec_constants=false, since module().uniforms is only
+		// populated on that path (effect_codegen_spirv.cpp, define_uniform())
+		// - with it on, defaults live in module().spec_constants instead.
+		// Always run against the ORIGINAL source text, never anything
+		// --load-settings would have patched, so this reflects the shader's
+		// own authored defaults, not values we just injected.
+		reshadefx::preprocessor scan_pp;
+		for (const auto &[name, value] : user_defines)
+			scan_pp.add_macro_definition(name, value);
+		for (const std::string &path : user_include_paths)
+			scan_pp.add_include_path(path);
+		scan_pp.add_macro_definition("__RESHADE__", reshade_version);
+		scan_pp.add_macro_definition("__RESHADE_PERFORMANCE_MODE__", performance_mode ? "1" : "0");
+		scan_pp.add_macro_definition("BUFFER_WIDTH", buffer_width);
+		scan_pp.add_macro_definition("BUFFER_HEIGHT", buffer_height);
+		scan_pp.add_macro_definition("BUFFER_RCP_WIDTH", "(1.0 / BUFFER_WIDTH)");
+		scan_pp.add_macro_definition("BUFFER_RCP_HEIGHT", "(1.0 / BUFFER_HEIGHT)");
+
+		if (!scan_pp.append_string(original_source_text, source_file))
+		{
+			if (json_output)
+				std::cout << "{\"file\":\"" << json_escape(source_file) << "\",\"success\":false,"
+					<< "\"stage\":\"preprocess\",\"error\":\"" << json_escape(scan_pp.errors()) << "\"}\n";
+			else
+				std::cout << scan_pp.errors() << std::endl;
+			return 1;
+		}
+
+		std::unique_ptr<reshadefx::codegen> scan_backend(
+			reshadefx::create_codegen_spirv(false, false, false, false));
+
+		reshadefx::parser scan_parser;
+		if (!scan_parser.parse(scan_pp.output(), scan_backend.get()))
+		{
+			if (json_output)
+				std::cout << "{\"file\":\"" << json_escape(source_file) << "\",\"success\":false,"
+					<< "\"stage\":\"parse\",\"error\":\"" << json_escape(scan_pp.errors() + scan_parser.errors()) << "\"}\n";
+			else
+				std::cout << scan_pp.errors() << scan_parser.errors() << std::endl;
+			return 1;
+		}
+
+		std::ofstream settings_out(settings_save_path, std::ios::trunc);
+		if (!settings_out)
+		{
+			if (json_output)
+				std::cout << "{\"file\":\"" << json_escape(source_file) << "\",\"success\":false,"
+					<< "\"stage\":\"save-settings\",\"error\":\"could not write " << json_escape(settings_save_path) << "\"}\n";
+			else
+				std::cout << "error: could not write " << settings_save_path << std::endl;
+			return 1;
+		}
+
+		settings_out << "[" << effect_filename << "]\n";
+		for (const reshadefx::uniform &u : scan_backend->module().uniforms)
+		{
+			if (!u.has_initializer_value)
+				continue; // nothing to write without an authored default
+
+			settings_out << u.name << "=";
+			const unsigned int component_count = std::max(1u, u.type.components());
+			for (unsigned int c = 0; c < component_count; ++c)
+			{
+				if (c != 0)
+					settings_out << ",";
+				switch (u.type.base)
+				{
+				case reshadefx::type::t_bool:
+				case reshadefx::type::t_uint:
+					settings_out << u.initializer_value.as_uint[c];
+					break;
+				case reshadefx::type::t_int:
+					settings_out << u.initializer_value.as_int[c];
+					break;
+				default: // t_float and the other floating-point variants
+					settings_out << std::to_string(u.initializer_value.as_float[c]);
+					break;
+				}
+			}
+			settings_out << "\n";
+		}
+
+		if (!json_output)
+			std::cout << "SAVED_SETTINGS " << settings_save_path << "\n";
+	}
+
+	bool preprocess_ok;
+	if (load_settings_requested)
+	{
+		const std::map<std::string, std::vector<std::string>> settings = parse_settings_file(settings_load_path, effect_filename);
+		std::string source_text = apply_settings_to_source(original_source_text, settings);
+
+		// append_string() with a path behaves identically to append_file()
+		// for include resolution etc. - append_file() itself just reads the
+		// file and forwards to append_string() (effect_preprocessor.cpp).
+		preprocess_ok = pp.append_string(std::move(source_text), source_file);
+	}
+	else
+	{
+		preprocess_ok = pp.append_file(source_file);
+	}
+
+	if (!preprocess_ok)
 	{
 		if (json_output)
 			std::cout << "{\"file\":\"" << json_escape(source_file) << "\",\"success\":false,"

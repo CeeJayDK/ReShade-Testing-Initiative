@@ -95,12 +95,12 @@ able to test both branches:
 ```bash
 --reshade-version <num>   # override __RESHADE__ (default: the version these
                            # tools were built against; MAJOR*10000+MINOR*100+REVISION)
---performance-mode        # set __RESHADE_PERFORMANCE_MODE__ to 1 (default: 0)
+--perf                     # set __RESHADE_PERFORMANCE_MODE__ to 1 (default: 0)
 --width <n>                # override BUFFER_WIDTH (default: 1920)
 --height <n>               # override BUFFER_HEIGHT (default: 1080)
 ```
 
-`--performance-mode` is the one worth understanding, not just using. ReShade
+`--perf` is the one worth understanding, not just using. ReShade
 recompiles a shader with its uniform variables (normally used for editable
 UI settings) turned into `static const` values when performance mode is on.
 The compiler can sometimes fold and simplify the resulting math further than
@@ -120,7 +120,7 @@ other side of an `if` a uniform guards, for instance — use:
 --load-settings[=<path>]   # read plain-numeric uniform overrides from a
                              # ReShade-preset-format file (a real ReShade
                              # preset works too) and apply them before
-                             # compiling. Implies --performance-mode, since
+                             # compiling. Implies --perf, since
                              # that's the only mode where a uniform's value
                              # becomes part of the compiled code rather than
                              # a runtime-editable buffer entry.
