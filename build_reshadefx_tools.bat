@@ -3,6 +3,11 @@ setlocal enabledelayedexpansion
 REM Builds reshadefx_cli.exe and reshadefx_rga.exe from crosire/reshade's
 REM real, unmodified compiler source, using MinGW-w64.
 REM
+REM Unlike the Linux/macOS build, reshadefx_cli.exe here also supports
+REM --dxbc (real DX9/10/11/12-equivalent shader-model compilation via the
+REM actual Microsoft D3DCompiler, since d3dcompiler_47.dll ships with
+REM Windows itself) alongside --hlsl/--glsl/--spirv.
+REM
 REM Requires: git, and a MinGW-w64 g++ (x86_64) on PATH.
 REM   Easiest install: https://winlibs.com (download, unzip, add its bin\ to PATH)
 REM   or via MSYS2: pacman -S mingw-w64-x86_64-gcc
@@ -102,15 +107,11 @@ echo #define VERSION_MINOR %VER_MINOR% >> "%VH%"
 echo #define VERSION_REVISION %VER_REV% >> "%VH%"
 echo #define VERSION_STRING_PRODUCT "ReShade %VER_MAJOR%.%VER_MINOR%.%VER_REV% (mingw-built reshadefx tools)" >> "%VH%"
 
-REM Stub out the DXBC backend so the CLI tool still links; --dxbc simply is
-REM not available in this build (it needs Microsoft's D3DCompiler, and isn't
-REM needed to validate a shader - HLSL/GLSL/SPIR-V codegen already proves it).
-set "DS=%WORK_DIR%\dxbc_stub.cpp"
-echo #include "effect_codegen.hpp" > "%DS%"
-echo reshadefx::codegen *reshadefx::create_codegen_dxbc(unsigned int, bool, bool, int) >> "%DS%"
-echo { >> "%DS%"
-echo 	return nullptr; >> "%DS%"
-echo } >> "%DS%"
+REM Note: DXBC codegen (crosire's own effect_codegen_dxbc.cpp, unmodified) IS
+REM built below for reshadefx_cli.exe - unlike the Linux/macOS build, this one
+REM actually runs on Windows, where d3dcompiler_47.dll ships as part of the OS
+REM itself. That gets --dxbc backed by the real Microsoft compiler, not an
+REM approximation - no stubbing needed, no DLL to bundle.
 
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
 for %%I in ("%OUT_DIR%") do set "OUT_DIR=%%~fI"
@@ -120,22 +121,34 @@ pushd "%WORK_DIR%\reshade"
 set "INCLUDES=-I source -I res -I deps\spirv\include\spirv\unified1"
 set "COMMON_SRC=source\effect_lexer.cpp source\effect_preprocessor.cpp source\effect_parser_exp.cpp source\effect_parser_stmt.cpp source\effect_symbol_table.cpp source\effect_expression.cpp"
 
+REM Matches the size-relevant settings from crosire's own Release|x64 build
+REM of ReShadeFXC.vcxproj (FunctionLevelLinking+OptimizeReferences ->
+REM -ffunction-sections/-fdata-sections+--gc-sections; ExceptionHandling=false
+REM -> -fno-exceptions, safe because reshadefx itself never throws/catches -
+REM the only "try"/"catch" in its source are lexer keyword-table strings and
+REM comments; GenerateDebugInformation=false -> -s to strip symbols). -Os
+REM trades a little runtime speed for size, which doesn't matter for a
+REM short-lived CLI compile tool. -static stays - unlike MSVC's /MT release
+REM CRT, that one's there so the .exe needs no MinGW runtime DLLs at all.
+set "SIZE_FLAGS=-Os -fno-exceptions -ffunction-sections -fdata-sections -s"
+set "SIZE_LINK_FLAGS=-Wl,--gc-sections"
+
 REM share.h provides SH_DENYWR, which MSVC headers define but MinGW's
 REM equivalent lives in a separate header the source doesn't include.
 if "%WANT_CLI%"=="1" (
 	echo Building reshadefx_cli.exe ...
-	g++ -std=c++17 -O2 -static -include share.h %INCLUDES% ^
-		%COMMON_SRC% source\effect_codegen_hlsl.cpp source\effect_codegen_glsl.cpp source\effect_codegen_spirv.cpp ^
-		tools\fxc.cpp "%WORK_DIR%\dxbc_stub.cpp" ^
+	g++ -std=c++17 %SIZE_FLAGS% -static -include share.h %INCLUDES% ^
+		%COMMON_SRC% source\effect_codegen_hlsl.cpp source\effect_codegen_glsl.cpp source\effect_codegen_spirv.cpp source\effect_codegen_dxbc.cpp ^
+		tools\fxc.cpp %SIZE_LINK_FLAGS% -ld3dcompiler ^
 		-o "%OUT_DIR%\reshadefx_cli.exe"
 	if errorlevel 1 exit /b 1
 )
 
 if "%WANT_RGA%"=="1" (
 	echo Building reshadefx_rga.exe ...
-	g++ -std=c++17 -O2 -DRESHADEFX_VERSION_NUM=%VER_NUM% -static -include share.h %INCLUDES% ^
+	g++ -std=c++17 %SIZE_FLAGS% -DRESHADEFX_VERSION_NUM=%VER_NUM% -static -include share.h %INCLUDES% ^
 		%COMMON_SRC% source\effect_codegen_spirv.cpp ^
-		"%SCRIPT_DIR%reshadefx_rga.cpp" ^
+		"%SCRIPT_DIR%reshadefx_rga.cpp" %SIZE_LINK_FLAGS% ^
 		-o "%OUT_DIR%\reshadefx_rga.exe"
 	if errorlevel 1 exit /b 1
 )
@@ -145,4 +158,5 @@ rmdir /s /q "%WORK_DIR%"
 
 echo Done. Binaries in %OUT_DIR%
 if "%WANT_CLI%"=="1" echo Example: %OUT_DIR%\reshadefx_cli.exe --hlsl -I path\to\reshade-shaders\Shaders -Fo out.hlsl myshader.fx
+if "%WANT_CLI%"=="1" echo Example: %OUT_DIR%\reshadefx_cli.exe --dxbc --shader-model 50 -I path\to\reshade-shaders\Shaders -E MyEntryPoint -Fo out.cso myshader.fx
 if "%WANT_RGA%"=="1" echo Example: %OUT_DIR%\reshadefx_rga.exe -I path\to\reshade-shaders\Shaders --rga path\to\rga.exe --asic gfx1100 myshader.fx

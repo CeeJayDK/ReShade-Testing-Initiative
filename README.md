@@ -23,7 +23,16 @@ build two CLI tools from it:
 
 - **`reshadefx_cli`** — compiles a `.fx` file and reports the exact errors
   the real ReshadeFX compiler would give. Equivalent to the `ReShadeFXC`
-  tool that ships with ReShade itself.
+  tool that ships with ReShade itself. On Windows, it also supports
+  `--dxbc --shader-model <30|40|41|50|...>` for real DX9/10/11/12-equivalent
+  compilation — this links crosire's own unmodified `effect_codegen_dxbc.cpp`
+  against the actual Microsoft D3DCompiler (`d3dcompiler_47.dll`, which ships
+  with Windows itself), so it's the real compiler ReShade itself uses on
+  those APIs, not an approximation. This is Windows-only because
+  D3DCompiler is a proprietary, closed-source, Windows-only library with no
+  equivalent elsewhere; the Linux/macOS build only produces `--hlsl` text
+  for those shader models, which is genuinely the same code ReShade would
+  hand to D3DCompile, just without the actual compile-and-optimize step.
 - **`reshadefx_rga`** — makes [RGA (Radeon GPU Analyzer)](https://github.com/GPUOpen-Tools/radeon_gpu_analyzer)
   understand ReshadeFX shaders directly. RGA only speaks raw HLSL/GLSL/SPIR-V
   and has no idea what a `technique`/`pass` is or how to resolve
@@ -83,6 +92,14 @@ shown above:
 
 ```bash
 ./bin/reshadefx_rga --json -I path/to/reshade-shaders/Shaders myshader.fx
+```
+
+On Windows, `reshadefx_cli.exe` additionally supports real DX9/10/11/12
+compilation via the actual Microsoft D3DCompiler (`--shader-model` maps
+directly to the profile: `30`=DX9, `40`=DX10, `41`/`50`=DX11/12):
+
+```powershell
+reshadefx_cli.exe --dxbc --shader-model 50 -I path\to\reshade-shaders\Shaders -E MyEntryPoint -Fo out.cso myshader.fx
 ```
 
 ## Testing shaders under different ReShade conditions
