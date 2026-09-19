@@ -65,15 +65,16 @@ been ported.
 **Why deferred:** the single-axis renderer sweep already found the two real bugs,
 and this is a much larger cross product.
 
-**What exists:** `audit/audit_paths.py` sweeps `__RENDERER__` across all eight
-renderer IDs and groups effects by preprocessed output. `audit/AUDIT.md` has the
-results — 4 of 33 effects are API-dependent, FXAA.fx and SMAA.fx both stale.
+**What exists:** `tools/audit_paths.py` sweeps `__RENDERER__` across all eight
+renderer IDs and groups effects by preprocessed output. `docs/AUDIT.md` has the
+results — 4 of 33 effects are API-dependent; FXAA.fx and SMAA.fx were stale and
+are now fixed in SweetFX.
 
 **What it misses, and why it matters:** the sweep uses default uniform values.
 SMAA proved that path coverage is a function of the **preset as well as the API**
 — a branch on a runtime uniform only reaches the compiler in performance mode
-with a preset that selects it. SMAA's gather bug is invisible at
-`EdgeDetectionType=0` and costs 3× the fetches at `EdgeDetectionType=2`.
+with a preset that selects it. SMAA's gather bug (now fixed) was invisible at
+`EdgeDetectionType=0` and cost 3× the fetches at `EdgeDetectionType=2`.
 
 **Next step:** enumerate the combo/int uniforms in each effect (they are in
 `module().uniforms` with their `ui_items` annotation giving the value range),

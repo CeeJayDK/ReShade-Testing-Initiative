@@ -53,21 +53,7 @@ when you get there; if there is none, file under Wine with a vkd3d component.
 - [ ] Replace the version block with what you actually tested
 - [ ] File it
 
-## 4. Fix the two stale shader paths
-
-Both in SweetFX, both `#if (__RENDERER__ == 0xb000 || __RENDERER__ == 0xb100)`,
-both should be `>= 0xb000` like CAS.fx already does.
-
-- [ ] `FXAA.fx:45` — costs 4 extra texture fetches on DX12, OpenGL and Vulkan
-      today, at default settings (20 → 24)
-- [ ] `SMAA.fx:115` — latent. Invisible at the default preset; costs 3× the
-      fetches (1 → 3) when `EdgeDetectionType=2`. Note SMAA.fx defines no
-      `SMAA_HLSL_*`/`SMAA_GLSL_*` level, so SMAA.fxh's own gather defines never
-      fire and line 115 is the only source of `SMAAGather`
-- [ ] Re-run the audit afterwards to confirm only CAS and CRT remain
-      API-dependent
-
-## 5. Report the ReShade upstream bugs
+## 4. Report the ReShade upstream bugs
 
 `docs/upstream/reshade-fxc.md` and `tools/fxc-fix.py`. Six fixes to
 `tools/fxc.cpp`, applies cleanly to v6.8.0 and master.
