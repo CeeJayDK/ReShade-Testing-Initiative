@@ -131,6 +131,22 @@ REM trades a little runtime speed for size, which doesn't matter for a
 REM short-lived CLI compile tool. -static stays - unlike MSVC's /MT release
 REM CRT, that one's there so the .exe needs no MinGW runtime DLLs at all.
 set "SIZE_FLAGS=-Os -fno-exceptions -ffunction-sections -fdata-sections -s"
+
+REM SPIRV-Tools is optional and enables "reshadefx_rga --optimize", which runs
+REM the folding/dead-branch passes a GPU driver runs before counting. Without it
+REM the flag reports that it is unavailable instead of disappearing.
+REM Set SPIRV_TOOLS_DIR to a SPIRV-Tools install (with include\ and lib\).
+set "SPIRV_TOOLS_FLAGS="
+if defined SPIRV_TOOLS_DIR (
+	if exist "%SPIRV_TOOLS_DIR%\include\spirv-tools\optimizer.hpp" (
+		set "SPIRV_TOOLS_FLAGS=-DRESHADEFX_HAVE_SPIRV_TOOLS -I"%SPIRV_TOOLS_DIR%\include" -L"%SPIRV_TOOLS_DIR%\lib" -lSPIRV-Tools-opt -lSPIRV-Tools"
+		echo SPIRV-Tools found: reshadefx_rga --optimize will be available
+	)
+)
+if not defined SPIRV_TOOLS_FLAGS (
+	echo SPIRV-Tools not found: reshadefx_rga --optimize will report it is unavailable
+	echo   ^(set SPIRV_TOOLS_DIR to enable it^)
+)
 set "SIZE_LINK_FLAGS=-Wl,--gc-sections"
 
 REM share.h provides SH_DENYWR, which MSVC headers define but MinGW's
@@ -148,7 +164,8 @@ if "%WANT_RGA%"=="1" (
 	echo Building reshadefx_rga.exe ...
 	g++ -std=c++17 %SIZE_FLAGS% -DRESHADEFX_VERSION_NUM=%VER_NUM% -static -include share.h %INCLUDES% ^
 		%COMMON_SRC% source\effect_codegen_spirv.cpp ^
-		"%SCRIPT_DIR%reshadefx_rga.cpp" %SIZE_LINK_FLAGS% ^
+		"%SCRIPT_DIR%reshadefx_rga.cpp" "%SCRIPT_DIR%spirv_optimize.cpp" ^
+		%SPIRV_TOOLS_FLAGS% %SIZE_LINK_FLAGS% ^
 		-o "%OUT_DIR%\reshadefx_rga.exe"
 	if errorlevel 1 exit /b 1
 )

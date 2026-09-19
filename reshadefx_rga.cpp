@@ -18,6 +18,7 @@
 #include "effect_preprocessor.hpp"
 #include "GLSL.std.450.h"
 #include "json_util.hpp"
+#include "spirv_optimize.hpp"
 #include <cstring>
 #include <cstdint>
 #include <cstdio>
@@ -217,6 +218,19 @@ static void print_usage(const char *path)
 		"  --reshade-version <num>  Override the __RESHADE__ macro (default: the\n"
 		"                   version this binary was built against).\n"
 		"  --perf                   Set __RESHADE_PERFORMANCE_MODE__ to 1 (default: 0).\n"
+		"  --renderer <id>  Override __RENDERER__ (default: 0x20000, Vulkan).\n"
+		"                   0x9000 D3D9, 0xa000 D3D10, 0xa100 D3D10.1,\n"
+		"                   0xb000 D3D11, 0xc000 D3D12, 0x10000 OpenGL.\n"
+		"                   Effects that branch on __RENDERER__ compile different\n"
+		"                   code per API; this is how to see which path each takes.\n"
+		"  --optimize               Run the folding/inlining/mem2reg/dead-branch\n"
+		"                   passes a GPU driver runs, before counting. reshadefx\n"
+		"                   emits both sides of every branch and leaves all\n"
+		"                   optimization to the driver, so without this the count\n"
+		"                   includes code no GPU executes (LumaSharpen: 116 vs 15\n"
+		"                   cheap_alu, 16 vs 5 texture). Implies --perf. This is a\n"
+		"                   vendor-neutral proxy, not any specific driver - use it\n"
+		"                   to compare shader versions, not to predict GPU cost.\n"
 		"  --load-settings[=<path>] ReShade-preset-format file (or a real ReShade\n"
 		"                   preset) to read plain-numeric uniform overrides from,\n"
 		"                   applied to the source before compiling. Implies\n"
@@ -316,6 +330,44 @@ static std::map<std::string, std::vector<std::string>> parse_settings_file(const
 	}
 
 	return result;
+}
+
+// The preprocessor environment the ReShade runtime sets up (runtime.cpp).
+//
+// This is not cosmetic. An undefined macro evaluates to 0 in #if, so a missing
+// __RENDERER__ makes every renderer-conditional effect silently compile its
+// fallback path with no diagnostic; and without the backwards-compatibility
+// macros, any effect still using the pre-5.0 spelling of the offset/gather
+// intrinsics fails outright (CAS.fx, SMAA.fx, Deband.fx in the standard packs).
+static void setup_reshade_macros(reshadefx::preprocessor &pp, const std::string &reshade_version,
+	bool performance_mode, const std::string &buffer_width, const std::string &buffer_height,
+	unsigned int renderer_id)
+{
+	pp.add_macro_definition("__RESHADE__", reshade_version);
+	pp.add_macro_definition("__RESHADE_PERMUTATION__", "0");
+	pp.add_macro_definition("__RESHADE_PERFORMANCE_MODE__", performance_mode ? "1" : "0");
+	pp.add_macro_definition("__VENDOR__", "0");
+	pp.add_macro_definition("__DEVICE__", "0");
+	pp.add_macro_definition("__RENDERER__", std::to_string(renderer_id));
+	pp.add_macro_definition("__APPLICATION__", "0");
+	pp.add_macro_definition("BUFFER_WIDTH", buffer_width);
+	pp.add_macro_definition("BUFFER_HEIGHT", buffer_height);
+	pp.add_macro_definition("BUFFER_RCP_WIDTH", "(1.0 / BUFFER_WIDTH)");
+	pp.add_macro_definition("BUFFER_RCP_HEIGHT", "(1.0 / BUFFER_HEIGHT)");
+	pp.add_macro_definition("BUFFER_COLOR_SPACE", "1");
+	pp.add_macro_definition("BUFFER_COLOR_FORMAT", "28");
+	pp.add_macro_definition("BUFFER_COLOR_BIT_DEPTH", "8");
+
+	// Identical to the block runtime.cpp injects before the effect source.
+	pp.append_string(
+		"#define tex2Doffset(s, coords, offset) tex2D(s, coords, offset)\n"
+		"#define tex2Dlodoffset(s, coords, offset) tex2Dlod(s, coords, offset)\n"
+		"#define tex2Dgather(s, t, c) tex2Dgather##c(s, t)\n"
+		"#define tex2Dgatheroffset(s, t, o, c) tex2Dgather##c(s, t, o)\n"
+		"#define tex2Dgather0 tex2DgatherR\n"
+		"#define tex2Dgather1 tex2DgatherG\n"
+		"#define tex2Dgather2 tex2DgatherB\n"
+		"#define tex2Dgather3 tex2DgatherA\n");
 }
 
 // Replaces the plain-number default value of matching "uniform <type> <name>
@@ -501,8 +553,13 @@ int main(int argc, char *argv[])
 	// the preprocessor before these defaults do, not after.
 	std::string reshade_version = std::to_string(RESHADEFX_VERSION_NUM);
 	bool performance_mode = false;
+	bool optimize = false;
 	std::string buffer_width = "1920";
 	std::string buffer_height = "1080";
+	// This tool emits SPIR-V, which is what ReShade uses on Vulkan, so that is
+	// the default. Override it to audit which path an effect takes on another
+	// API -- several effects branch on __RENDERER__ and compile different code.
+	unsigned int renderer_id = 0x20000; // Vulkan
 
 	const char *source_file = nullptr;
 	std::string rga_path;
@@ -556,6 +613,14 @@ int main(int argc, char *argv[])
 		else if (arg == "--reshade-version" && i + 1 < argc)
 		{
 			reshade_version = argv[++i];
+		}
+		else if (arg == "--renderer" && i + 1 < argc)
+		{
+			renderer_id = static_cast<unsigned int>(std::strtoul(argv[++i], nullptr, 0));
+		}
+		else if (arg == "--optimize")
+		{
+			optimize = true;
 		}
 		else if (arg == "--perf")
 		{
@@ -630,12 +695,8 @@ int main(int argc, char *argv[])
 		pp.add_macro_definition(name, value);
 	for (const std::string &path : user_include_paths)
 		pp.add_include_path(path);
-	pp.add_macro_definition("__RESHADE__", reshade_version);
-	pp.add_macro_definition("__RESHADE_PERFORMANCE_MODE__", performance_mode ? "1" : "0");
-	pp.add_macro_definition("BUFFER_WIDTH", buffer_width);
-	pp.add_macro_definition("BUFFER_HEIGHT", buffer_height);
-	pp.add_macro_definition("BUFFER_RCP_WIDTH", "(1.0 / BUFFER_WIDTH)");
-	pp.add_macro_definition("BUFFER_RCP_HEIGHT", "(1.0 / BUFFER_HEIGHT)");
+	setup_reshade_macros(pp, reshade_version, performance_mode,
+		buffer_width, buffer_height, renderer_id);
 
 	// Read the source into memory ourselves whenever either settings flag is
 	// in play - --load-settings needs to patch it before preprocessing, and
@@ -674,12 +735,8 @@ int main(int argc, char *argv[])
 			scan_pp.add_macro_definition(name, value);
 		for (const std::string &path : user_include_paths)
 			scan_pp.add_include_path(path);
-		scan_pp.add_macro_definition("__RESHADE__", reshade_version);
-		scan_pp.add_macro_definition("__RESHADE_PERFORMANCE_MODE__", performance_mode ? "1" : "0");
-		scan_pp.add_macro_definition("BUFFER_WIDTH", buffer_width);
-		scan_pp.add_macro_definition("BUFFER_HEIGHT", buffer_height);
-		scan_pp.add_macro_definition("BUFFER_RCP_WIDTH", "(1.0 / BUFFER_WIDTH)");
-		scan_pp.add_macro_definition("BUFFER_RCP_HEIGHT", "(1.0 / BUFFER_HEIGHT)");
+		setup_reshade_macros(scan_pp, reshade_version, performance_mode,
+			buffer_width, buffer_height, renderer_id);
 
 		if (!scan_pp.append_string(original_source_text, source_file))
 		{
@@ -775,6 +832,11 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	// --optimize without --perf would fold nothing: the uniforms stay uniforms,
+	// so no branch becomes dead. Imply it rather than silently doing no work.
+	if (optimize)
+		performance_mode = true;
+
 	std::unique_ptr<reshadefx::codegen> backend(
 		reshadefx::create_codegen_spirv(false, false, performance_mode, false));
 
@@ -828,7 +890,27 @@ int main(int argc, char *argv[])
 			stage == reshadefx::shader_type::pixel ? "pixel" :
 			stage == reshadefx::shader_type::compute ? "compute" : "unknown";
 
-		const instruction_counts counts = classify_spirv_instructions(binary);
+		// Counting the raw module counts code no GPU executes: reshadefx emits
+		// both sides of every branch and leaves optimization to the driver.
+		const instruction_counts raw_counts = classify_spirv_instructions(binary);
+		instruction_counts counts = raw_counts;
+		bool optimized_ok = false;
+		bool inliner_incomplete = false;
+
+		if (optimize)
+		{
+			std::string optimized, opt_error;
+			if (reshadefx_tools::spirv_optimize(binary, optimized, inliner_incomplete, opt_error))
+			{
+				counts = classify_spirv_instructions(optimized);
+				optimized_ok = true;
+				binary = optimized;
+			}
+			else
+			{
+				std::cerr << "warning: " << entry_name << ": " << opt_error << "\n";
+			}
+		}
 
 		if (!json_output)
 		{
@@ -841,6 +923,18 @@ int main(int argc, char *argv[])
 				<< " control_flow=" << counts.control_flow
 				<< " memory=" << counts.memory
 				<< " other=" << counts.other << "\n";
+
+			if (optimized_ok)
+			{
+				std::cout << "  before optimization: executed_instructions=" << raw_counts.executed()
+					<< " cheap_alu=" << raw_counts.cheap_alu
+					<< " texture=" << raw_counts.texture
+					<< " control_flow=" << raw_counts.control_flow << "\n";
+				if (inliner_incomplete)
+					std::cout << "  WARNING: the SPIR-V inliner declined this module, so mem2reg could\n"
+					             "           not run and the load/store scaffolding is still counted.\n"
+					             "           These numbers are inflated - do not compare them.\n";
+			}
 		}
 
 		std::ostringstream rga_results_json;

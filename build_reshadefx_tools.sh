@@ -105,21 +105,42 @@ COMMON_SRC=(
 )
 INCLUDES=(-I source -I res -I deps/spirv/include/spirv/unified1)
 
+# Matches the size-relevant parts of crosire's own MSVC Release settings, as the
+# Windows .bat already does. The .sh was missing these.
+SIZE_FLAGS=(-Os -fno-exceptions -ffunction-sections -fdata-sections -s
+            -Wl,--gc-sections)
+
+# SPIRV-Tools is optional and enables reshadefx_rga --optimize. Linked rather
+# than shelled out to, so the pass list and the SPIRV-Tools version are pinned
+# into the binary.
+SPIRV_TOOLS_FLAGS=()
+if [ -f /usr/include/spirv-tools/optimizer.hpp ] || [ -n "${SPIRV_TOOLS_INCLUDE_DIR:-}" ]; then
+	SPIRV_TOOLS_FLAGS=(-DRESHADEFX_HAVE_SPIRV_TOOLS
+	                   ${SPIRV_TOOLS_INCLUDE_DIR:+-I"$SPIRV_TOOLS_INCLUDE_DIR"}
+	                   "$SCRIPT_DIR/spirv_optimize.cpp"
+	                   -lSPIRV-Tools-opt -lSPIRV-Tools)
+	echo "SPIRV-Tools found: reshadefx_rga --optimize will be available"
+else
+	SPIRV_TOOLS_FLAGS=("$SCRIPT_DIR/spirv_optimize.cpp")
+	echo "SPIRV-Tools not found: reshadefx_rga --optimize will report it is unavailable"
+	echo "  (Debian/Ubuntu: apt-get install spirv-tools)"
+fi
+
 if [ "$WANT_CLI" -eq 1 ]; then
 	echo "Building reshadefx_cli ..."
-	g++ -std=c++17 -O2 "${INCLUDES[@]}" "${COMMON_SRC[@]}" \
+	g++ -std=c++17 "${SIZE_FLAGS[@]}" "${INCLUDES[@]}" "${COMMON_SRC[@]}" \
 		tools/fxc.cpp "$WORK_DIR/dxbc_stub.cpp" \
 		-o "$OUT_DIR/reshadefx_cli"
 fi
 
 if [ "$WANT_RGA" -eq 1 ]; then
 	echo "Building reshadefx_rga ..."
-	g++ -std=c++17 -O2 -DRESHADEFX_VERSION_NUM=$VER_NUM "${INCLUDES[@]}" \
+	g++ -std=c++17 "${SIZE_FLAGS[@]}" -DRESHADEFX_VERSION_NUM=$VER_NUM "${INCLUDES[@]}" \
 		source/effect_lexer.cpp source/effect_preprocessor.cpp \
 		source/effect_parser_exp.cpp source/effect_parser_stmt.cpp \
 		source/effect_symbol_table.cpp source/effect_expression.cpp \
 		source/effect_codegen_spirv.cpp \
-		"$SCRIPT_DIR/reshadefx_rga.cpp" \
+		"$SCRIPT_DIR/reshadefx_rga.cpp" "${SPIRV_TOOLS_FLAGS[@]}" \
 		-o "$OUT_DIR/reshadefx_rga"
 fi
 
