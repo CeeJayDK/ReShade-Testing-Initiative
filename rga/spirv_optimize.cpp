@@ -61,22 +61,22 @@ namespace
 	}
 }
 
-bool reshadefx_tools::spirv_optimize_available()
+bool rti::spirv_optimize_available()
 {
 	return true;
 }
 
-std::string reshadefx_tools::spirv_optimize_version()
+std::string rti::spirv_optimize_version()
 {
 	return spvSoftwareVersionString();
 }
 
-std::vector<std::string> reshadefx_tools::spirv_optimize_passes()
+std::vector<std::string> rti::spirv_optimize_passes()
 {
 	return std::vector<std::string>(std::begin(k_passes), std::end(k_passes));
 }
 
-bool reshadefx_tools::spirv_optimize(const std::string &input, std::string &output,
+bool rti::spirv_optimize(const std::string &input, std::string &output,
                                      bool &inliner_incomplete, std::string &error)
 {
 	inliner_incomplete = false;
@@ -137,22 +137,22 @@ bool reshadefx_tools::spirv_optimize(const std::string &input, std::string &outp
 
 #else // RESHADEFX_HAVE_SPIRV_TOOLS
 
-bool reshadefx_tools::spirv_optimize_available()
+bool rti::spirv_optimize_available()
 {
 	return false;
 }
 
-std::string reshadefx_tools::spirv_optimize_version()
+std::string rti::spirv_optimize_version()
 {
 	return {};
 }
 
-std::vector<std::string> reshadefx_tools::spirv_optimize_passes()
+std::vector<std::string> rti::spirv_optimize_passes()
 {
 	return {};
 }
 
-bool reshadefx_tools::spirv_optimize(const std::string &, std::string &, bool &, std::string &error)
+bool rti::spirv_optimize(const std::string &, std::string &, bool &, std::string &error)
 {
 	error = "this build has no SPIRV-Tools; rebuild with SPIRV-Tools available "
 	        "(Debian/Ubuntu: apt-get install spirv-tools) to use --optimize";

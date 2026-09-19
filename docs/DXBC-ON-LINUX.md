@@ -52,36 +52,30 @@ F__LumaSharpenPass           pixel        15     58     35      0      9     117
 tools/
   build-vkd3d-shader.sh    build libvkd3d-shader.a natively on Linux
   idl2h.py                 extract the C parts of a Windows .idl (no widl needed)
-  fxc-fix.py               the tools/fxc.cpp fixes (see BUG-REPORT.md)
-reshadefx-cli/
+  fxc-fix.py               the tools/fxc.cpp fixes (see docs/upstream/reshade-fxc.md)
+cli/
   effect_codegen_dxbc_vkd3d.cpp   the DXBC back end
   coverage.cpp                    corpus coverage measurement
-  build.sh                        builds reshadefx_cli + reshadefx_coverage
 fxstat/                    instruction statistics; --dxbc and --spirv back ends
 ```
 
 ## Building
 
 ```
-./reshadefx-cli/build.sh            # fetches everything, builds reshadefx_cli
-./reshadefx-cli/bin/reshadefx_cli --dxbc --shader-model 50 --list-entry-points \
+./build_reshade_testing_initiative.sh --cli-fixed   # fetches everything it needs
+./bin/reshadefx_cli_fixed --dxbc --shader-model 50 --list-entry-points \
     -I path/to/reshade-shaders/Shaders MyShader.fx
 ```
+
+`reshadefx_cli_fixed` is the vkd3d-backed one; plain `reshadefx_cli` is
+crosire's unmodified tool and has no `--dxbc` on Linux.
 
 Needs `gcc`/`g++`, `cmake`, `bison`, `flex`, `python3`, `git`. No Wine, no
 Microsoft redistributable, no Vulkan SDK.
 
-For fxstat with the DXBC back end:
-
-```
-./tools/build-vkd3d-shader.sh /tmp/vkd3d
-cd fxstat && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-    -DRESHADE_DIR=../reshade -DSPIRV_HEADERS_DIR=../SPIRV-Headers \
-    -DVKD3D_BUILD=/tmp/vkd3d
-cmake --build build
-```
-
-`-DVKD3D_BUILD` is optional; without it fxstat builds fine, minus `--dxbc`.
+fxstat and `reshadefx_coverage` are built the same way (`--fxstat`,
+`--coverage`, or no flag for everything), and both link the same vkd3d build,
+cached in `.deps/vkd3d`.
 
 ## How the vkd3d build works, and why it is odd
 
@@ -141,7 +135,7 @@ cost, feed the SPIR-V that `fxstat --spirv --dump` writes to `rga -s vk-offline`
 ## The fxc.cpp fixes
 
 `tools/fxc-fix.py` applies six fixes to crosire's `tools/fxc.cpp`; the
-accompanying `BUG-REPORT.md` covers the first four in detail. Summary:
+accompanying `docs/upstream/reshade-fxc.md` covers the first four in detail. Summary:
 
 1. Missing backwards-compatibility macros (`tex2Doffset` and friends) — hard
    failure on CAS.fx and SMAA.fx.
@@ -161,7 +155,7 @@ accompanying `BUG-REPORT.md` covers the first four in detail. Summary:
 ## Testing
 
 ```
-bash fxstat/test/run_tests.sh              # needs ../SweetFX and ../reshade-shaders
-./reshadefx-cli/bin/reshadefx_coverage \
+fxstat/test/run_tests.sh                   # needs ../SweetFX and ../reshade-shaders
+./bin/reshadefx_coverage \
     -I path/to/reshade-shaders/Shaders --sm 50 --sm 40 --sm 30 *.fx
 ```

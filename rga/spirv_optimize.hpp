@@ -26,7 +26,7 @@
 #include <string>
 #include <vector>
 
-namespace reshadefx_tools
+namespace rti
 {
 	// True when this build has SPIRV-Tools linked in.
 	bool spirv_optimize_available();

@@ -1,27 +1,28 @@
 # Repository layout
 
-What lives where, after the ReShade Testing Initiative rename.
-
 ```
-reshadefx_rga.cpp             the RGA/stats tool          (root, unchanged place)
-spirv_optimize.{cpp,hpp}      SPIR-V driver-proxy passes  (root, used by the above)
-json_util.hpp                 (root)
-build_reshadefx_tools.{sh,bat}
+build_reshade_testing_initiative.sh   Linux/macOS build of every tool
+build_reshade_testing_initiative.bat  Windows (MinGW-w64) build of every tool
+RESHADE_VERSION                       the ReShade tag every build uses
+
+rga/                          reshadefx_rga
+  reshadefx_rga.cpp             the tool
+  spirv_optimize.{cpp,hpp}      SPIR-V driver-proxy passes
+  json_util.hpp                 JSON string escaping
+
+cli/                          sources for reshadefx_cli_fixed and reshadefx_coverage
+  effect_codegen_dxbc_vkd3d.cpp   Linux drop-in for crosire's D3DCompiler-based one
+  coverage.cpp                    corpus coverage measurement
 
 fxstat/                       instruction statistics, as a library + CLI
   include/fxstat/fxstat.hpp     the whole public API
   src/core/                     libfxstat_core: compile, optimise, classify
   src/cli/                      args, file I/O, output formatting
   examples/minimal.cpp          using the library from memory, no files
-  test/run_tests.sh             17 tests
+  test/run_tests.sh             smoke tests
   tools/gen_opcode_table.py     generates the SPIR-V opcode table
-  CMakeLists.txt, build.sh
+  CMakeLists.txt
   README.md, WINDOWS.md
-
-reshadefx-cli/                makes reshadefx_cli --dxbc work on Linux
-  effect_codegen_dxbc_vkd3d.cpp   drop-in for crosire's D3DCompiler-based one
-  coverage.cpp                    corpus coverage measurement
-  build.sh                        builds reshadefx_cli + reshadefx_coverage
 
 tools/                        shared build and analysis tooling
   build-vkd3d-shader.sh         builds libvkd3d-shader.a natively on Linux
@@ -32,19 +33,29 @@ tools/                        shared build and analysis tooling
 
 docs/
   CHECKLIST.md                  what is left to do, in order
-  BUG-REPORT.md                 the ReShade tools/fxc.cpp bugs, ready to file
   AUDIT.md                      renderer-path audit results
   DXBC-ON-LINUX.md              how the vkd3d DXBC route works and what it costs
   HANDOFF.md                    deferred work: WASM, preset sweep, RGA, bandwidth
   LAYOUT.md                     this file
+  upstream/                     bug reports for other projects, ready to file
+    reshade-fxc.md                the ReShade tools/fxc.cpp bugs
+    vkd3d/                        the vkd3d bug: ISSUE.md, SUBMITTING.md, repros
 
-vkd3d-issue/                  the vkd3d bug, ready to submit
-  ISSUE.md, SUBMITTING.md
-  repro_sm3.hlsl, repro_sm5.hlsl, workaround.hlsl
-  repro_harness_sm3.c, repro_harness_sm5.c
+.deps/    (gitignored) reshade, SPIR-V headers and vkd3d, fetched by the build
+bin/      (gitignored) build output
 ```
 
-## The two tools, and why both exist
+## The five executables
+
+| binary | source | --dxbc |
+|---|---|---|
+| `reshadefx_cli` | crosire's `tools/fxc.cpp`, unmodified | Windows only (D3DCompiler) |
+| `reshadefx_cli_fixed` | same, with `tools/fxc-fix.py` applied | Windows: D3DCompiler, Linux: vkd3d |
+| `reshadefx_rga` | `rga/` | n/a (SPIR-V) |
+| `fxstat` | `fxstat/` | Windows: D3DCompiler, Linux: vkd3d |
+| `reshadefx_coverage` | `cli/coverage.cpp` | Windows: D3DCompiler, Linux: vkd3d |
+
+## reshadefx_rga and fxstat, and why both exist
 
 **`reshadefx_rga`** counts SPIR-V. It is the Vulkan/OpenGL answer, it drives real
 RGA for AMD ISA data, and `--optimize` makes its numbers reflect code a GPU
@@ -60,9 +71,10 @@ reuse. Merging them is a decision to make later, not a loose end to trip over.
 
 ## Path assumptions
 
-Scripts resolve each other relative to their own location, so the tree can be
-moved as a whole but not rearranged internally:
+The build scripts find everything relative to their own location, so the tree
+can be moved as a whole but not rearranged internally:
 
-- `reshadefx-cli/build.sh` → `../tools/build-vkd3d-shader.sh`, `../tools/fxc-fix.py`
+- `build_reshade_testing_initiative.*` → `RESHADE_VERSION`, `rga/`, `cli/`,
+  `fxstat/`, `tools/fxc-fix.py`, `tools/build-vkd3d-shader.sh`
 - `tools/build-vkd3d-shader.sh` → `./idl2h.py`
-- `fxstat/build.sh` → `./tools/gen_opcode_table.py`
+- `fxstat/test/run_tests.sh` → `../bin/fxstat` (override with `FXSTAT`)

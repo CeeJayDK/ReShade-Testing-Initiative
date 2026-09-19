@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Smoke tests. Needs SweetFX and reshade-shaders checkouts alongside this repo.
+# Smoke tests. Needs SweetFX and reshade-shaders checkouts alongside this repo
+# (or set SWEETFX / SHADERS), and fxstat built by the root build script.
 set -uo pipefail
 cd "$(dirname "$0")/.."
-FXSTAT=build/fxstat
+FXSTAT="${FXSTAT:-../bin/fxstat}"
 SWEETFX="${SWEETFX:-../SweetFX}"
 SHADERS="${SHADERS:-../reshade-shaders}"
 fail=0

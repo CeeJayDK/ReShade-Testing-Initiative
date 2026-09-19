@@ -1,6 +1,6 @@
-# ReshadeFX-tools
+# ReShade Testing Initiative
 
-[![Build](https://github.com/CeeJayDK/ReshadeFX-tools/actions/workflows/build.yml/badge.svg)](https://github.com/CeeJayDK/ReshadeFX-tools/actions/workflows/build.yml)
+[![Build](https://github.com/CeeJayDK/ReShade-Testing-Initiative/actions/workflows/build.yml/badge.svg)](https://github.com/CeeJayDK/ReShade-Testing-Initiative/actions/workflows/build.yml)
 
 Command-line tools for anyone working with [ReshadeFX](https://github.com/crosire/reshade)
 shaders who wants to compile, verify, or analyze them quickly — without
@@ -12,27 +12,43 @@ These use the real ReshadeFX compiler itself, not a re-implementation or
 a guess at what would compile — so the answer you get is the answer ReShade
 itself would give.
 
+(This repo was previously called ReshadeFX-tools.)
+
 ## What's here
 
-`build_reshadefx_tools.sh` (Linux/macOS) and `build_reshadefx_tools.bat`
-(Windows, needs [MinGW-w64](https://winlibs.com) + git on PATH) fetch a
-pinned commit of [crosire/reshade](https://github.com/crosire/reshade)'s own
-source (the lexer, preprocessor, parser, symbol table, and HLSL/GLSL/SPIR-V
-codegen — the parts of the compiler that have no Windows dependency) and
-build two CLI tools from it:
+`build_reshade_testing_initiative.sh` (Linux/macOS) and
+`build_reshade_testing_initiative.bat` (Windows, MinGW-w64) fetch
+[crosire/reshade](https://github.com/crosire/reshade)'s own source at the tag in
+`RESHADE_VERSION` and build five tools from it:
 
-- **`reshadefx_cli`** — compiles a `.fx` file and reports the exact errors
-  the real ReshadeFX compiler would give. Equivalent to the `ReShadeFXC`
-  tool that ships with ReShade itself. On Windows, it also supports
-  `--dxbc --shader-model <30|40|41|50|...>` for real DX9/10/11/12-equivalent
-  compilation — this links crosire's own unmodified `effect_codegen_dxbc.cpp`
-  against the actual Microsoft D3DCompiler (`d3dcompiler_47.dll`, which ships
-  with Windows itself), so it's the real compiler ReShade itself uses on
-  those APIs, not an approximation. This is Windows-only because
-  D3DCompiler is a proprietary, closed-source, Windows-only library with no
-  equivalent elsewhere; the Linux/macOS build only produces `--hlsl` text
-  for those shader models, which is genuinely the same code ReShade would
-  hand to D3DCompile, just without the actual compile-and-optimize step.
+| tool | what it does |
+|---|---|
+| `reshadefx_cli` | crosire's own `ReShadeFXC`, unmodified. Compiles a `.fx` file and reports the exact errors ReShade would. |
+| `reshadefx_cli_fixed` | the same tool with six bug fixes applied ([docs/upstream/reshade-fxc.md](docs/upstream/reshade-fxc.md)), and `--dxbc` on Linux too. |
+| `reshadefx_rga` | per-stage SPIR-V instruction cost; optionally drives AMD's RGA for real GPU ISA and register data. |
+| `fxstat` | SPIR-V and DXBC instruction statistics, JSON output, baseline/diff mode. See [fxstat/README.md](fxstat/README.md). |
+| `reshadefx_coverage` | how much of a shader corpus compiles to DXBC, per shader model. |
+
+More detail on each:
+
+- **`reshadefx_cli`** — equivalent to the `ReShadeFXC` tool that ships with
+  ReShade, built from crosire's unmodified `tools/fxc.cpp`. On Windows it
+  also supports `--dxbc --shader-model <30|40|41|50|...>` for real
+  DX9/10/11/12-equivalent compilation — this links crosire's own unmodified
+  `effect_codegen_dxbc.cpp` against the actual Microsoft D3DCompiler
+  (`d3dcompiler_47.dll`, which ships with Windows itself), so it's the real
+  compiler ReShade uses on those APIs. On Linux/macOS this build only produces
+  `--hlsl` text for those shader models, which is the same code ReShade would
+  hand to D3DCompile, just without the compile-and-optimize step.
+- **`reshadefx_cli_fixed`** — `reshadefx_cli` with
+  [`tools/fxc-fix.py`](tools/fxc-fix.py) applied. Upstream's tool sets up a
+  different preprocessor environment than the runtime does, so it rejects
+  some effects ReShade compiles fine and silently compiles the wrong branch of
+  others. The fixed build also adds `--list-entry-points` and `-Fc`. On Linux
+  its `--dxbc` works, via vkd3d-shader
+  ([docs/DXBC-ON-LINUX.md](docs/DXBC-ON-LINUX.md)); on Windows it uses
+  D3DCompiler like the upstream one. Use this one unless you specifically need
+  upstream's exact behaviour.
 - **`reshadefx_rga`** — makes [RGA (Radeon GPU Analyzer)](https://github.com/GPUOpen-Tools/radeon_gpu_analyzer)
   understand ReshadeFX shaders directly. RGA only speaks raw HLSL/GLSL/SPIR-V
   and has no idea what a `technique`/`pass` is or how to resolve
@@ -44,37 +60,37 @@ build two CLI tools from it:
     for "which parts of this shader are expensive," useful with no other
     tools installed, and enough on its own to confirm an optimization
     actually reduced instruction count rather than just looking leaner;
+  - with `--optimize`, first runs the folding and dead-branch passes a GPU
+    driver runs, so the counts reflect code that actually executes (needs
+    SPIRV-Tools at build time);
   - if you point it at an installed copy of RGA with `--rga <path> --asic
     <name>`, it additionally reports genuine AMD GPU ISA size and real
-    VGPR/SGPR register usage for a real, named GPU — actual hardware data,
-    not a heuristic;
+    VGPR/SGPR register usage for a real, named GPU;
   - can load or save a small settings file to exercise a uniform value other
     than the shader's own hardcoded default — see
     [Testing shaders under different ReShade conditions](#testing-shaders-under-different-reshade-conditions)
     below.
+- **`fxstat`** — overlaps with `reshadefx_rga` on SPIR-V, adds DXBC, and is
+  built as a library with a thin CLI on top. Why both exist:
+  [docs/LAYOUT.md](docs/LAYOUT.md).
+- **`reshadefx_coverage`** — walks every effect, every entry point and every
+  requested shader model and reports exactly what fails to compile to DXBC
+  and why.
 
-`reshadefx_rga` accepts `--json` for machine-readable output (structured
-compile diagnostics with file/line/column/code, and named numeric fields
-instead of text) — useful when something else is going to parse the result
-rather than a human reading it directly. `reshadefx_cli` deliberately stays
-plain text only — it's built from crosire's own unmodified `tools/fxc.cpp`,
-fetched fresh every build, so patching a `--json` flag into it would mean
-re-patching on every ReShade version bump.
-
-The DXBC/DXIL backends are intentionally excluded — they call into
-Microsoft's D3DCompiler and are Windows-only — but they aren't needed to
-validate a shader: HLSL/GLSL/SPIR-V codegen succeeding already proves the
-shader is valid.
+`reshadefx_rga` and `fxstat` accept `--json` for machine-readable output.
+`reshadefx_cli` deliberately stays plain text only — it's built from crosire's
+own unmodified `tools/fxc.cpp`, fetched fresh every build, so patching a
+`--json` flag into it would mean re-patching on every ReShade version bump.
 
 ## Usage
 
 ```bash
-./build_reshadefx_tools.sh          # builds into ./bin (Windows: build_reshadefx_tools.bat)
+./build_reshade_testing_initiative.sh     # builds everything into ./bin (Windows: .bat)
 ./bin/reshadefx_cli --hlsl -I path/to/reshade-shaders/Shaders -Fo out.hlsl myshader.fx
 ./bin/reshadefx_rga -I path/to/reshade-shaders/Shaders myshader.fx
 ```
 
-Both tools accept `-I <path>` for include directories (e.g. the standard
+All the tools accept `-I <path>` for include directories (e.g. the standard
 [reshade-shaders](https://github.com/crosire/reshade-shaders) repo, if your
 effect includes `ReShade.fxh`) and `-D name=value` for preprocessor macros.
 
@@ -94,7 +110,7 @@ shown above:
 ./bin/reshadefx_rga --json -I path/to/reshade-shaders/Shaders myshader.fx
 ```
 
-On Windows, `reshadefx_cli.exe` additionally supports real DX9/10/11/12
+On Windows, `reshadefx_cli.exe` and `reshadefx_cli_fixed.exe` support real DX9/10/11/12
 compilation via the actual Microsoft D3DCompiler (`--shader-model` maps
 directly to the profile: `30`=DX9, `40`=DX10, `41`/`50`=DX11/12):
 
@@ -158,29 +174,47 @@ levels.fx` picks that same file back up. Hand-edit the saved file (or point
 ./bin/reshadefx_rga --load-settings levels.fx    # compiles with that override
 ```
 
-## Building only some of the tools
+## Building
 
-By default the build script builds both tools. If you only need one — e.g.
-for a project like ShaderBridge where you only care whether a port compiles
-correctly and have no use for the optimization-focused rga tool — pass
-`--cli` or `--rga`:
+With no arguments the build script builds all five tools into `./bin`. Pass
+any of `--cli`, `--cli-fixed`, `--rga`, `--fxstat`, `--coverage` to build only
+those — e.g. for a project like ShaderBridge, where you only care whether a
+port compiles:
 
 ```bash
-./build_reshadefx_tools.sh --cli              # just the compiler
-./build_reshadefx_tools.sh --rga              # just rga
+./build_reshade_testing_initiative.sh --cli-fixed     # just the compiler
+./build_reshade_testing_initiative.sh out --rga       # just rga, into ./out
 ```
 
-Don't want to build anything? Every push to `main` builds and functional-tests
-both platforms in CI — grab the latest binaries from the
-[Actions tab](https://github.com/CeeJayDK/ReshadeFX-tools/actions/workflows/build.yml)
+What each needs besides git and g++:
+
+| | Linux/macOS | Windows |
+|---|---|---|
+| `reshadefx_cli` | — | — |
+| `reshadefx_cli_fixed` | python3, bison, flex | python |
+| `reshadefx_rga` | SPIRV-Tools (optional, for `--optimize`) | same, via `SPIRV_TOOLS_DIR` |
+| `fxstat` | cmake, SPIRV-Tools, bison, flex | cmake, SPIRV-Tools via `SPIRV_TOOLS_DIR` |
+| `reshadefx_coverage` | bison, flex | — |
+
+bison and flex are for vkd3d-shader, which is what gives `--dxbc` on Linux.
+Debian/Ubuntu: `apt-get install spirv-tools bison flex cmake`.
+
+Downloaded sources (ReShade, the SPIR-V headers that ReShade tag pins, and
+vkd3d) are cached in `.deps/`. The first full build takes a few minutes, mostly
+vkd3d; after that it is quick. Delete `.deps/` to start clean.
+
+Don't want to build anything? Every push to `main` builds and tests both
+platforms in CI — grab the latest binaries from the
+[Actions tab](https://github.com/CeeJayDK/ReShade-Testing-Initiative/actions/workflows/build.yml)
 (click the newest run's artifacts), or from the
-[Releases page](https://github.com/CeeJayDK/ReshadeFX-tools/releases) for a
+[Releases page](https://github.com/CeeJayDK/ReShade-Testing-Initiative/releases) for a
 tagged version.
 
 ## Staying in sync with ReShade
 
 `RESHADE_VERSION` pins the exact upstream tag these tools are built against
-(currently ReShade 6.8.0). A daily scheduled workflow checks
+(currently ReShade 6.8.0), and every tool in both build scripts is built against
+it. A daily scheduled workflow checks
 [crosire/reshade](https://github.com/crosire/reshade)'s tags directly via
 git (no REST API, no rate limits) for the newest clean `vMAJOR.MINOR.REVISION`
 tag — pre-releases like `v6.9.0-rc1` are ignored, matching how crosire
@@ -193,23 +227,32 @@ automatically. No manual step required to stay current.
 
 The Windows build uses MinGW-w64 rather than MSVC, so no Visual Studio
 install is required — just MinGW-w64 (e.g. from [winlibs.com](https://winlibs.com),
-or `pacman -S mingw-w64-x86_64-gcc` via MSYS2) and git on `PATH`. The
-resulting `.exe` files have been verified to run correctly (including
-driving the real Windows `rga.exe`) via Wine cross-testing during
-development, in addition to the build script's own logic being verified
-independently. The one caveat: the script's friendly "is g++/git on PATH?"
-pre-check uses `where`, which is reliable on real Windows but was observed
-to give false positives under Wine — if that check ever passes incorrectly
-on your machine, the build will still simply fail with a normal
-"not recognized" error at the point a missing tool is actually needed.
+or via MSYS2) and git on `PATH`. The `.exe` files are statically linked and need
+no MinGW runtime DLLs. The simplest full setup is MSYS2, which is also what CI
+uses:
+
+```
+pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-make mingw-w64-x86_64-cmake mingw-w64-x86_64-spirv-tools
+set SPIRV_TOOLS_DIR=C:\msys64\mingw64
+build_reshade_testing_initiative.bat
+```
+
+vkd3d is not used on Windows; every `--dxbc` there goes through the real
+`d3dcompiler_47.dll`. See [fxstat/WINDOWS.md](fxstat/WINDOWS.md) for what has
+and hasn't been verified on real Windows.
+
+## Repository layout
+
+See [docs/LAYOUT.md](docs/LAYOUT.md). Open work is in
+[docs/CHECKLIST.md](docs/CHECKLIST.md).
 
 ## Credit
 
 The compiler these tools are built from is
 [crosire/reshade](https://github.com/crosire/reshade), written by Patrick
 Mours and contributors, licensed under BSD 3-Clause. This repo doesn't
-vendor or redistribute that source — the build scripts fetch it fresh from
-a pinned commit — but the CLI tools are thin wrappers around that code, and
+vendor or redistribute that source — the build scripts fetch it from
+the pinned tag — but the CLI tools are thin wrappers around that code, and
 credit for the actual compiler belongs there. The optional GPU ISA analysis
 uses [RGA](https://github.com/GPUOpen-Tools/radeon_gpu_analyzer), by AMD.
 

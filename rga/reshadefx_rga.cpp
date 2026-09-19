@@ -900,7 +900,7 @@ int main(int argc, char *argv[])
 		if (optimize)
 		{
 			std::string optimized, opt_error;
-			if (reshadefx_tools::spirv_optimize(binary, optimized, inliner_incomplete, opt_error))
+			if (rti::spirv_optimize(binary, optimized, inliner_incomplete, opt_error))
 			{
 				counts = classify_spirv_instructions(optimized);
 				optimized_ok = true;

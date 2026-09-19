@@ -88,7 +88,7 @@ rather than sweeping every slider.
 
 ## 3. Submitting the vkd3d issue
 
-Fully written up. See `vkd3d-issue/SUBMITTING.md` — routes, steps, and the three
+Fully written up. See `docs/upstream/vkd3d/SUBMITTING.md` — routes, steps, and the three
 things I could not verify from a sandbox (that FXC accepts the construct, whether
 a `vkd3d` product exists in WineHQ Bugzilla, and the exact `vkd3d-compiler` CLI
 flags).

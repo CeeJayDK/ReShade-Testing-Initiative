@@ -24,6 +24,12 @@
 #include <memory>
 #include <sstream>
 
+#ifndef RESHADEFX_VERSION_NUM
+#define RESHADEFX_VERSION_NUM 60800 // normally passed in by the build, from RESHADE_VERSION
+#endif
+#define RESHADEFX_STR2(x) #x
+#define RESHADEFX_STR(x) RESHADEFX_STR2(x)
+
 namespace
 {
 
@@ -149,7 +155,7 @@ void setup_preprocessor(reshadefx::preprocessor &pp, const fxstat::compile_optio
 	for (const auto &[name, value] : o.defines)
 		pp.add_macro_definition(name, value);
 
-	pp.add_macro_definition("__RESHADE__", "60800");
+	pp.add_macro_definition("__RESHADE__", RESHADEFX_STR(RESHADEFX_VERSION_NUM));
 	pp.add_macro_definition("__RESHADE_PERMUTATION__", "0");
 	pp.add_macro_definition("__RESHADE_PERFORMANCE_MODE__", o.performance_mode ? "1" : "0");
 	pp.add_macro_definition("__VENDOR__", "0");

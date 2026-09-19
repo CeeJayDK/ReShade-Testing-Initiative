@@ -43,7 +43,22 @@ line and in the `dxbc_compiler` JSON field. Check that before comparing anything
 The practical rule: use D3DCompiler on Windows for real numbers, and vkd3d when
 you need Windows and Linux results to line up.
 
+## Build: the easy way
+
+From the repository root, with MSYS2's MinGW-w64 toolchain on `PATH`:
+
+```
+pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-make mingw-w64-x86_64-cmake mingw-w64-x86_64-spirv-tools
+set SPIRV_TOOLS_DIR=C:\msys64\mingw64
+build_reshade_testing_initiative.bat --fxstat
+```
+
+This is what CI does. The sections below are for building by hand.
+
 ## Build: MSVC
+
+`RESHADE_DIR` and `SPIRV_HEADERS_DIR` below can point at the checkout the build
+script caches, `.deps\reshade-<version>` and `.deps\reshade-<version>\deps\spirv`.
 
 ```
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release ^

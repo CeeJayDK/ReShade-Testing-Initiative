@@ -225,26 +225,26 @@ SPIRV-Tools version; both appear in `--json` output.
 
 ## Building
 
-Needs a C++17 compiler, CMake, Python 3 (for the opcode table) and SPIRV-Tools
-headers and libraries (Debian/Ubuntu: `apt-get install spirv-tools`). Nothing is
-needed on `PATH` at run time.
+Use the build script at the repository root. It fetches ReShade at the tag in
+`RESHADE_VERSION`, the SPIR-V headers that tag pins, and (on Linux) vkd3d-shader
+for `--dxbc`:
 
 ```
-git clone --depth 1 https://github.com/crosire/reshade.git
-git clone --depth 1 https://github.com/KhronosGroup/SPIRV-Headers.git
+./build_reshade_testing_initiative.sh --fxstat     # -> bin/fxstat
+```
 
+Needs a C++17 compiler, CMake and SPIRV-Tools headers and libraries
+(Debian/Ubuntu: `apt-get install spirv-tools`). Nothing is needed on `PATH` at
+run time. Windows: see [WINDOWS.md](WINDOWS.md).
+
+`src/core/spirv_opcodes.gen.cpp` is generated and committed. To regenerate it
+after a SPIR-V headers update:
+
+```
 python3 tools/gen_opcode_table.py \
-    SPIRV-Headers/include/spirv/unified1/spirv.core.grammar.json \
-    src/spirv_opcodes.gen.cpp
-
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-      -DRESHADE_DIR=../reshade -DSPIRV_HEADERS_DIR=../SPIRV-Headers
-cmake --build build
+    <SPIRV-Headers>/include/spirv/unified1/spirv.core.grammar.json \
+    src/core/spirv_opcodes.gen.cpp
 ```
-
-Only the ReShadeFX front end and the three code generators without Windows-only
-dependencies are compiled; `effect_codegen_dxbc.cpp` and `effect_codegen_dxil.cpp`
-need `d3dcompiler.h` and are left out.
 
 ## Next
 

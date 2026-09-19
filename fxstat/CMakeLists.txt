@@ -8,6 +8,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(RESHADE_DIR "" CACHE PATH "Path to a crosire/reshade checkout")
 set(SPIRV_HEADERS_DIR "" CACHE PATH "Path to a KhronosGroup/SPIRV-Headers checkout")
 set(VKD3D_BUILD "" CACHE PATH "Output directory of build-vkd3d-shader.sh (enables --dxbc)")
+set(RESHADEFX_VERSION_NUM "" CACHE STRING "__RESHADE__ value, MAJOR*10000+MINOR*100+REVISION (default: the value in compile.cpp)")
 
 if(NOT EXISTS "${RESHADE_DIR}/source/effect_parser.hpp")
 	message(FATAL_ERROR "RESHADE_DIR does not point at a reshade checkout")
@@ -79,6 +80,10 @@ target_include_directories(fxstat_core
 	PUBLIC  "${CMAKE_CURRENT_SOURCE_DIR}/include"
 	PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/core"
 	        "${SPIRV_TOOLS_INCLUDE_DIR}")
+
+if(RESHADEFX_VERSION_NUM)
+	target_compile_definitions(fxstat_core PRIVATE RESHADEFX_VERSION_NUM=${RESHADEFX_VERSION_NUM})
+endif()
 
 target_link_libraries(fxstat_core PUBLIC reshadefx PRIVATE
 	"${SPIRV_TOOLS_OPT_LIB}" "${SPIRV_TOOLS_LIB}")

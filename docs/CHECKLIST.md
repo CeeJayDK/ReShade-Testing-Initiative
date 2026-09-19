@@ -8,7 +8,7 @@ Ordered so each step is useful on its own. Nothing here depends on a later item.
 
 Everything is in the repo now — no patch to apply, no files to copy.
 
-- [ ] `./build_reshadefx_tools.sh` (or `build_reshadefx_tools.bat` on Windows) —
+- [ ] `./build_reshade_testing_initiative.sh` (or the `.bat` on Windows) —
       it prints whether SPIRV-Tools was found
 - [ ] `reshadefx_rga --optimize -I <shaders> LumaSharpen.fx` -> expect
       `cheap_alu=21 texture=5 control_flow=0`, with a `before optimization:`
@@ -31,7 +31,7 @@ SPIRV-Tools and `--optimize` is a no-op.
 
 ## 3. File the vkd3d bug
 
-Files are in `vkd3d-issue/` (`ISSUE.md` to paste, `SUBMITTING.md` for the steps).
+Files are in `docs/upstream/vkd3d/` (`ISSUE.md` to paste, `SUBMITTING.md` for the steps).
 
 **URL: https://gitlab.winehq.org/wine/vkd3d/-/issues**
 
@@ -69,7 +69,7 @@ both should be `>= 0xb000` like CAS.fx already does.
 
 ## 5. Report the ReShade upstream bugs
 
-`docs/BUG-REPORT.md` and `tools/fxc-fix.py`. Six fixes to
+`docs/upstream/reshade-fxc.md` and `tools/fxc-fix.py`. Six fixes to
 `tools/fxc.cpp`, applies cleanly to v6.8.0 and master.
 
 - [ ] Decide whether to file as one issue or a merge request
