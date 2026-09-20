@@ -1,0 +1,64 @@
+diff --git a/addon/src/depth_manager.cpp b/addon/src/depth_manager.cpp
+index 3ccb64d..485b322 100644
+--- a/addon/src/depth_manager.cpp
++++ b/addon/src/depth_manager.cpp
+@@ -175,7 +175,7 @@ bool DepthManager::verify_model_file(const std::wstring &path, const std::string
+         return false;
+     }
+ 
+-    std::ifstream ifs(path, std::ios::binary);
++    std::ifstream ifs(std::filesystem::path(path), std::ios::binary);
+     if (!ifs.is_open()) return false;
+     char magic[4] = {};
+     ifs.read(magic, 4);
+diff --git a/common/project_file.cpp b/common/project_file.cpp
+index 9b13346..5c76fad 100644
+--- a/common/project_file.cpp
++++ b/common/project_file.cpp
+@@ -307,7 +307,7 @@ bool load_project(
+         return false;
+     }
+ 
+-    std::ifstream in(project_path, std::ios::binary | std::ios::ate);
++    std::ifstream in(std::filesystem::path(project_path), std::ios::binary | std::ios::ate);
+     if (!in.is_open()) {
+         out_error = L"Could not open project file: " + project_path;
+         return false;
+diff --git a/host_app/CMakeLists.txt b/host_app/CMakeLists.txt
+index 9e8e90c..c1c59c8 100644
+--- a/host_app/CMakeLists.txt
++++ b/host_app/CMakeLists.txt
+@@ -73,3 +73,7 @@ set_target_properties(host_app PROPERTIES
+     CXX_STANDARD_REQUIRED ON
+     OUTPUT_NAME "ShaderLab"
+ )
++
++if(MINGW)
++    target_link_options(host_app PRIVATE -municode)
++endif()
+diff --git a/host_app/src/cli/cli_info.cpp b/host_app/src/cli/cli_info.cpp
+index fc34615..f5e0387 100644
+--- a/host_app/src/cli/cli_info.cpp
++++ b/host_app/src/cli/cli_info.cpp
+@@ -51,7 +51,7 @@ int CliInfo::execute(const CliOptions &opts) {
+     std::vector<float> embed_floats;
+ 
+     if (ext == ".png") {
+-        std::ifstream in(opts.input_path, std::ios::binary | std::ios::ate);
++        std::ifstream in(std::filesystem::path(opts.input_path), std::ios::binary | std::ios::ate);
+         if (in.is_open()) {
+             size_t size = in.tellg();
+             in.seekg(0, std::ios::beg);
+diff --git a/host_app/src/cli/cli_preset.cpp b/host_app/src/cli/cli_preset.cpp
+index afbcff3..00ea2fd 100644
+--- a/host_app/src/cli/cli_preset.cpp
++++ b/host_app/src/cli/cli_preset.cpp
+@@ -35,7 +35,7 @@ static ParsedPreset parse_ini(const std::wstring &path) {
+     ParsedPreset p;
+     p.path = wide_to_utf8(path.c_str());
+ 
+-    std::ifstream in(path);
++    std::ifstream in{std::filesystem::path(path)};
+     if (!in.is_open()) return p;
+ 
+     std::string line;

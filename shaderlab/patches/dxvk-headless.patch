@@ -1,0 +1,21 @@
+diff --git a/include/native/directx b/include/native/directx
+--- a/include/native/directx
++++ b/include/native/directx
+@@ -1 +1 @@
+-Subproject commit 9df86f2341616ef1888ae59919feaa6d4fad693d
++Subproject commit 9df86f2341616ef1888ae59919feaa6d4fad693d-dirty
+diff --git a/src/dxgi/dxgi_output.cpp b/src/dxgi/dxgi_output.cpp
+index 56cc5ff..ff9ab1e 100644
+--- a/src/dxgi/dxgi_output.cpp
++++ b/src/dxgi/dxgi_output.cpp
+@@ -644,6 +644,10 @@ namespace dxvk {
+     wsi::WsiMode activeWsiMode = { };
+     wsi::getCurrentDisplayMode(m_monitor, &activeWsiMode);
+ 
++    // Headless X servers (Xvfb) report a 0 Hz refresh rate; avoid dividing by zero below
++    if (!activeWsiMode.refreshRate.numerator || !activeWsiMode.refreshRate.denominator)
++      activeWsiMode.refreshRate = { 60, 1 };
++
+     // Get the display metadata + colorimetry
+     wsi::WsiEdidData edidData = wsi::getMonitorEdid(m_monitor);
+     std::optional<wsi::WsiDisplayMetadata> metadata = std::nullopt;

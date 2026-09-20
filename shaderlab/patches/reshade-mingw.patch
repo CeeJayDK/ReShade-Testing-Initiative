@@ -1,0 +1,534 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 9b09044..13003b7 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -82,7 +82,6 @@ set(RESHADE_SOURCE
+   source/state_block.hpp
+ )
+ set(RESHADE_SOURCE_DIRECTX
+-  source/d2d1/d2d1.cpp
+   source/d3d10/d3d10.cpp
+   source/d3d10/d3d10_device.cpp
+   source/d3d10/d3d10_device.hpp
+@@ -334,7 +333,7 @@ else()
+   target_compile_options(
+     ReShade
+     PRIVATE
+-      -DSTDMETHODCALLTYPE=
++      -Wno-c++11-narrowing -fsized-deallocation -msse4.1 -mf16c
+       -Wno-changes-meaning
+       -fPIC
+       $<$<CONFIG:Release>:-fno-rtti>
+@@ -379,7 +378,7 @@ if(WIN32)
+     ReShadeFX 
+     PRIVATE
+       source/effect_codegen_dxbc.cpp
+-      source/effect_codegen_dxil.cpp
++      $<$<NOT:$<BOOL:${MINGW}>>:source/effect_codegen_dxil.cpp>
+   )
+ endif()
+ 
+diff --git a/deps/CMakeLists.txt b/deps/CMakeLists.txt
+index 265c66b..f432c60 100644
+--- a/deps/CMakeLists.txt
++++ b/deps/CMakeLists.txt
+@@ -341,13 +341,21 @@ if(WIN32)
+   target_link_libraries(
+     Windows
+     INTERFACE
+-      d3dcompiler.lib
+-      dxguid.lib
+-      ShLwApi.lib
+-      Version.lib
+-      wininet.lib
+-      WinMM.lib
+-      WS2_32.lib
+-      Xinput9_1_0.lib
++      $<IF:$<BOOL:${MINGW}>,d3dcompiler_47,d3dcompiler.lib>
++      $<IF:$<BOOL:${MINGW}>,dxguid,dxguid.lib>
++      $<IF:$<BOOL:${MINGW}>,shlwapi,ShLwApi.lib>
++      $<IF:$<BOOL:${MINGW}>,version,Version.lib>
++      $<IF:$<BOOL:${MINGW}>,wininet,wininet.lib>
++      $<IF:$<BOOL:${MINGW}>,winmm,WinMM.lib>
++      $<IF:$<BOOL:${MINGW}>,ws2_32,WS2_32.lib>
++      $<IF:$<BOOL:${MINGW}>,xinput9_1_0,Xinput9_1_0.lib>
++      $<$<BOOL:${MINGW}>:ole32>
++      $<$<BOOL:${MINGW}>:uuid>
++      $<$<BOOL:${MINGW}>:shell32>
++      $<$<BOOL:${MINGW}>:gdi32>
++      $<$<BOOL:${MINGW}>:user32>
++      $<$<BOOL:${MINGW}>:advapi32>
++      $<$<BOOL:${MINGW}>:psapi>
++      $<$<BOOL:${MINGW}>:dbghelp>
+   )
+ endif()
+diff --git a/res/exports.def b/res/exports.def
+index bfd80ae..b45123c 100644
+--- a/res/exports.def
++++ b/res/exports.def
+@@ -1,7 +1,5 @@
+ EXPORTS
+ 	; d2d1.dll (Uses ordinals in d2d1.lib for all exports)
+-	D2D1CreateDevice @7 PRIVATE
+-	D2D1CreateFactory @1 PRIVATE
+ 
+ 	; d3d9.dll (Uses ordinals in d3d9.lib for 'Direct3DCreate9On12' and 'Direct3DCreate9On12Ex')
+ 	Direct3DCreate9 PRIVATE
+@@ -468,11 +466,11 @@ EXPORTS
+ 
+ 	; vulkan-1.dll
+ 	vkNegotiateLoaderLayerInterfaceVersion
+-	vkCreateDevice PRIVATE
+-	vkCreateInstance PRIVATE
++	vkCreateDevice=_Z14vkCreateDeviceP18VkPhysicalDevice_TPK18VkDeviceCreateInfoPK21VkAllocationCallbacksPP10VkDevice_T PRIVATE
++	vkCreateInstance=_Z16vkCreateInstancePK20VkInstanceCreateInfoPK21VkAllocationCallbacksPP12VkInstance_T PRIVATE
+ 	vkGetDeviceProcAddr PRIVATE
+ 	vkGetInstanceProcAddr PRIVATE
+-	vkGetPhysicalDeviceToolPropertiesEXT PRIVATE
++	vkGetPhysicalDeviceToolPropertiesEXT=_Z36vkGetPhysicalDeviceToolPropertiesEXTP18VkPhysicalDevice_TPjP30VkPhysicalDeviceToolProperties PRIVATE
+ 
+ 	; user32.dll
+ 	RegisterClassA = HookRegisterClassA PRIVATE
+diff --git a/res/resource.rc b/res/resource.rc
+index 901a727..c113c5e 100644
+--- a/res/resource.rc
++++ b/res/resource.rc
+@@ -66,51 +66,51 @@ MAIN_ICON               ICON                    "main_icon.ico"
+ #if !defined(RESHADE_FXC)
+ IDB_MAIN_ICON           RCDATA                  "main_icon_small.png"
+ 
+-IDR_COPY_PS             RCDATA                  "shaders\\copy_ps.cso"
++IDR_COPY_PS             RCDATA                  "shaders/copy_ps.cso"
+ 
+-IDR_FULLSCREEN_VS       RCDATA                  "shaders\\fullscreen_vs.cso"
++IDR_FULLSCREEN_VS       RCDATA                  "shaders/fullscreen_vs.cso"
+ 
+-IDR_IMGUI_PS_3_0        RCDATA                  "shaders\\imgui_ps_3_0.cso"
++IDR_IMGUI_PS_3_0        RCDATA                  "shaders/imgui_ps_3_0.cso"
+ 
+-IDR_IMGUI_PS_4_0        RCDATA                  "shaders\\imgui_ps_4_0.cso"
++IDR_IMGUI_PS_4_0        RCDATA                  "shaders/imgui_ps_4_0.cso"
+ 
+-IDR_IMGUI_PS_GLSL       RCDATA                  "shaders\\imgui_ps_430.glsl"
++IDR_IMGUI_PS_GLSL       RCDATA                  "shaders/imgui_ps_430.glsl"
+ 
+-IDR_IMGUI_PS_SPIRV      RCDATA                  "shaders\\imgui_ps_450.spv"
++IDR_IMGUI_PS_SPIRV      RCDATA                  "shaders/imgui_ps_450.spv"
+ 
+-IDR_IMGUI_VS_3_0        RCDATA                  "shaders\\imgui_vs_3_0.cso"
++IDR_IMGUI_VS_3_0        RCDATA                  "shaders/imgui_vs_3_0.cso"
+ 
+-IDR_IMGUI_VS_4_0        RCDATA                  "shaders\\imgui_vs_4_0.cso"
++IDR_IMGUI_VS_4_0        RCDATA                  "shaders/imgui_vs_4_0.cso"
+ 
+-IDR_IMGUI_VS_GLSL       RCDATA                  "shaders\\imgui_vs_430.glsl"
++IDR_IMGUI_VS_GLSL       RCDATA                  "shaders/imgui_vs_430.glsl"
+ 
+-IDR_IMGUI_VS_SPIRV      RCDATA                  "shaders\\imgui_vs_450.spv"
++IDR_IMGUI_VS_SPIRV      RCDATA                  "shaders/imgui_vs_450.spv"
+ 
+-IDR_MIPMAP_CS           RCDATA                  "shaders\\mipmap_cs_5_0.cso"
++IDR_MIPMAP_CS           RCDATA                  "shaders/mipmap_cs_5_0.cso"
+ 
+-IDR_MIPMAP_CS_GLSL      RCDATA                  "shaders\\mipmap_cs_430.glsl"
++IDR_MIPMAP_CS_GLSL      RCDATA                  "shaders/mipmap_cs_430.glsl"
+ 
+-IDR_LICENSE_GLAD        RCDATA                  "..\\deps\\glad\\LICENSE"
++IDR_LICENSE_GLAD        RCDATA                  "../deps/glad/LICENSE"
+ 
+-IDR_LICENSE_IMGUI       RCDATA                  "..\\deps\\imgui\\LICENSE.txt"
++IDR_LICENSE_IMGUI       RCDATA                  "../deps/imgui/LICENSE.txt"
+ 
+-IDR_LICENSE_MINHOOK     RCDATA                  "..\\deps\\minhook\\LICENSE.txt"
++IDR_LICENSE_MINHOOK     RCDATA                  "../deps/minhook/LICENSE.txt"
+ 
+-IDR_LICENSE_OPENVR      RCDATA                  "..\\deps\\openvr\\LICENSE"
++IDR_LICENSE_OPENVR      RCDATA                  "../deps/openvr/LICENSE"
+ 
+-IDR_LICENSE_OPENXR      RCDATA                  "..\\deps\\openxr\\LICENSE"
++IDR_LICENSE_OPENXR      RCDATA                  "../deps/openxr/LICENSE"
+ 
+-IDR_LICENSE_RESHADE     RCDATA                  "..\\LICENSE.md"
++IDR_LICENSE_RESHADE     RCDATA                  "../LICENSE.md"
+ 
+-IDR_LICENSE_SPIRV       RCDATA                  "..\\deps\\spirv\\LICENSE"
++IDR_LICENSE_SPIRV       RCDATA                  "../deps/spirv/LICENSE"
+ 
+-IDR_LICENSE_STB         RCDATA                  "..\\deps\\stb\\LICENSE"
++IDR_LICENSE_STB         RCDATA                  "../deps/stb/LICENSE"
+ 
+-IDR_LICENSE_UTFCPP      RCDATA                  "..\\deps\\utfcpp\\LICENSE"
++IDR_LICENSE_UTFCPP      RCDATA                  "../deps/utfcpp/LICENSE"
+ 
+-IDR_LICENSE_VMA         RCDATA                  "..\\deps\\vma\\LICENSE.txt"
++IDR_LICENSE_VMA         RCDATA                  "../deps/vma/LICENSE.txt"
+ 
+-IDR_LICENSE_S_JXL       RCDATA                  "..\\deps\\jxl_simple_lossless\\LICENSE"
++IDR_LICENSE_S_JXL       RCDATA                  "../deps/jxl_simple_lossless/LICENSE"
+ #endif
+ 
+ #endif    // Neutral (Default) resources
+diff --git a/source/com_utils.hpp b/source/com_utils.hpp
+index 4af0fa2..cd0f96b 100644
+--- a/source/com_utils.hpp
++++ b/source/com_utils.hpp
+@@ -6,6 +6,7 @@
+ #pragma once
+ 
+ #include <Unknwn.h>
++#include "com_ptr.hpp"
+ 
+ /// <summary>
+ /// Gets a pointer from the private data of the specified <paramref name="object"/>.
+diff --git a/source/d3d10/d3d10_impl_device.cpp b/source/d3d10/d3d10_impl_device.cpp
+index deef0bf..6e4af37 100644
+--- a/source/d3d10/d3d10_impl_device.cpp
++++ b/source/d3d10/d3d10_impl_device.cpp
+@@ -895,6 +895,7 @@ bool reshade::d3d10::device_impl::create_pipeline(api::pipeline_layout, uint32_t
+ 	if (!create_input_layout(input_layout_desc.count, static_cast<const api::input_element *>(input_layout_desc.data), vertex_shader_desc, &input_layout))
+ 		goto exit_failure;
+ 
++	{ // mingw: scope for goto
+ 	pipeline_impl *const impl = new pipeline_impl();
+ 
+ 	impl->vs = std::move(vertex_shader);
+@@ -919,6 +920,7 @@ bool reshade::d3d10::device_impl::create_pipeline(api::pipeline_layout, uint32_t
+ 	*out_pipeline = { reinterpret_cast<uintptr_t>(impl) | 1 };
+ 	return true;
+ 
++	} // mingw: scope for goto
+ exit_failure:
+ 	*out_pipeline = { 0 };
+ 	return false;
+diff --git a/source/d3d11/d3d11_device.cpp b/source/d3d11/d3d11_device.cpp
+index 7969a02..f6a6391 100644
+--- a/source/d3d11/d3d11_device.cpp
++++ b/source/d3d11/d3d11_device.cpp
+@@ -70,7 +70,7 @@ D3D11Device::~D3D11Device()
+ 
+ bool D3D11Device::check_and_upgrade_interface(REFIID riid)
+ {
+-	static constexpr IID iid_lookup[] = {
++	static const IID iid_lookup[] = {
+ 		__uuidof(ID3D11Device),  // {DB6F6DDB-AC77-4E88-8253-819DF9BBF140}
+ 		__uuidof(ID3D11Device1), // {A04BFB29-08EF-43D6-A49C-A9BDBDCBE686}
+ 		__uuidof(ID3D11Device2), // {9D06DFFA-D1E5-4D07-83A8-1BB123F2F841}
+diff --git a/source/d3d11/d3d11_device_context.cpp b/source/d3d11/d3d11_device_context.cpp
+index 8f68bc6..934634a 100644
+--- a/source/d3d11/d3d11_device_context.cpp
++++ b/source/d3d11/d3d11_device_context.cpp
+@@ -55,7 +55,7 @@ bool D3D11DeviceContext::check_and_upgrade_interface(REFIID riid)
+ 		riid == __uuidof(ID3D11DeviceChild))
+ 		return true;
+ 
+-	static constexpr IID iid_lookup[] = {
++	static const IID iid_lookup[] = {
+ 		__uuidof(ID3D11DeviceContext),  // {C0BFA96C-E089-44FB-8EAF-26F8796190DA}
+ 		__uuidof(ID3D11DeviceContext1), // {BB2C6FAA-B5FB-4082-8E6B-388B8CFA90E1}
+ 		__uuidof(ID3D11DeviceContext2), // {420D5B32-B90C-4DA4-BEF0-359F6A24A83A}
+diff --git a/source/d3d11/d3d11_impl_device.cpp b/source/d3d11/d3d11_impl_device.cpp
+index cb6f505..1579456 100644
+--- a/source/d3d11/d3d11_impl_device.cpp
++++ b/source/d3d11/d3d11_impl_device.cpp
+@@ -1142,6 +1142,7 @@ bool reshade::d3d11::device_impl::create_pipeline(api::pipeline_layout, uint32_t
+ 	if (!create_input_layout(input_layout_desc.count, static_cast<const api::input_element *>(input_layout_desc.data), vertex_shader_desc, &input_layout))
+ 		goto exit_failure;
+ 
++	{ // mingw: scope for goto
+ 	pipeline_impl *const impl = new pipeline_impl();
+ 
+ 	impl->vs = std::move(vertex_shader);
+@@ -1168,6 +1169,7 @@ bool reshade::d3d11::device_impl::create_pipeline(api::pipeline_layout, uint32_t
+ 	*out_pipeline = { reinterpret_cast<uintptr_t>(impl) | 1 };
+ 	return true;
+ 
++	} // mingw: scope for goto
+ exit_failure:
+ 	*out_pipeline = { 0 };
+ 	return false;
+diff --git a/source/d3d11/d3d11on12_device.cpp b/source/d3d11/d3d11on12_device.cpp
+index 4cc4ee1..5569177 100644
+--- a/source/d3d11/d3d11on12_device.cpp
++++ b/source/d3d11/d3d11on12_device.cpp
+@@ -28,7 +28,7 @@ bool D3D11On12Device::check_and_upgrade_interface(REFIID riid)
+ 	if (riid == __uuidof(this))
+ 		return true;
+ 
+-	static constexpr IID iid_lookup[] = {
++	static const IID iid_lookup[] = {
+ 		__uuidof(ID3D11On12Device),
+ 		__uuidof(ID3D11On12Device1),
+ 		__uuidof(ID3D11On12Device2),
+diff --git a/source/d3d12/d3d12_command_list.cpp b/source/d3d12/d3d12_command_list.cpp
+index 44f3d73..d3d88d6 100644
+--- a/source/d3d12/d3d12_command_list.cpp
++++ b/source/d3d12/d3d12_command_list.cpp
+@@ -38,7 +38,7 @@ bool D3D12GraphicsCommandList::check_and_upgrade_interface(REFIID riid)
+ 		riid == __uuidof(ID3D12CommandList))
+ 		return true;
+ 
+-	static constexpr IID iid_lookup[] = {
++	static const IID iid_lookup[] = {
+ 		__uuidof(ID3D12GraphicsCommandList),
+ 		__uuidof(ID3D12GraphicsCommandList1),
+ 		__uuidof(ID3D12GraphicsCommandList2),
+diff --git a/source/d3d12/d3d12_command_queue.cpp b/source/d3d12/d3d12_command_queue.cpp
+index 2b5073e..d20297e 100644
+--- a/source/d3d12/d3d12_command_queue.cpp
++++ b/source/d3d12/d3d12_command_queue.cpp
+@@ -40,7 +40,7 @@ bool D3D12CommandQueue::check_and_upgrade_interface(REFIID riid)
+ 		riid == __uuidof(ID3D12Pageable))
+ 		return true;
+ 
+-	static constexpr IID iid_lookup[] = {
++	static const IID iid_lookup[] = {
+ 		__uuidof(ID3D12CommandQueue),  // {0EC870A6-5D7E-4C22-8CFC-5BAAE07616ED}
+ 		__uuidof(ID3D12CommandQueue1), // {3A3C3165-0EE7-4B8E-A0AF-6356B4c3BBB9}
+ 	};
+diff --git a/source/d3d12/d3d12_device.cpp b/source/d3d12/d3d12_device.cpp
+index fab80ad..87798b4 100644
+--- a/source/d3d12/d3d12_device.cpp
++++ b/source/d3d12/d3d12_device.cpp
+@@ -58,7 +58,7 @@ bool D3D12Device::check_and_upgrade_interface(REFIID riid)
+ 		riid == __uuidof(ID3D12Object))
+ 		return true;
+ 
+-	static constexpr IID iid_lookup[] = {
++	static const IID iid_lookup[] = {
+ 		__uuidof(ID3D12Device),   // {189819F1-1DB6-4B57-BE54-1821339B85F7}
+ 		__uuidof(ID3D12Device1),  // {77ACCE80-638E-4E65-8895-C1F23386863E}
+ 		__uuidof(ID3D12Device2),  // {30BAA41E-B15B-475C-A0BB-1AF5C5B64328}
+diff --git a/source/d3d12/d3d12_pipeline_library.cpp b/source/d3d12/d3d12_pipeline_library.cpp
+index 83f16fb..c48f150 100644
+--- a/source/d3d12/d3d12_pipeline_library.cpp
++++ b/source/d3d12/d3d12_pipeline_library.cpp
+@@ -25,7 +25,7 @@ bool D3D12PipelineLibrary::check_and_upgrade_interface(REFIID riid)
+ 		riid == __uuidof(ID3D12DeviceChild))
+ 		return true;
+ 
+-	static constexpr IID iid_lookup[] = {
++	static const IID iid_lookup[] = {
+ 		__uuidof(ID3D12PipelineLibrary),
+ 		__uuidof(ID3D12PipelineLibrary1),
+ 	};
+diff --git a/source/dll_main.cpp b/source/dll_main.cpp
+index f1652b4..79e56b2 100644
+--- a/source/dll_main.cpp
++++ b/source/dll_main.cpp
+@@ -435,6 +435,8 @@ static FARPROC WINAPI DliNotifyHook2(unsigned dliNotify, PDelayLoadInfo pdli)
+ }
+ 
+ // See https://learn.microsoft.com/cpp/build/reference/understanding-the-helper-function
++#ifndef __MINGW32__
+ extern "C" const PfnDliHook __pfnDliNotifyHook2 = DliNotifyHook2;
++#endif
+ 
+ #endif
+diff --git a/source/dxgi/dxgi.cpp b/source/dxgi/dxgi.cpp
+index c736654..1eb7697 100644
+--- a/source/dxgi/dxgi.cpp
++++ b/source/dxgi/dxgi.cpp
+@@ -708,7 +708,7 @@ extern "C" HRESULT WINAPI CreateDXGIFactory2(UINT Flags, REFIID riid, void **ppF
+ 	// This is because the Steam overlay only hooks the swap chain creation functions when the vtable entries for them still point to the original functions, it will no longer do so once ReShade replaced them ("... points to another module, skipping hooks" in GameOverlayRenderer.log)
+ 
+ 	// Upgrade factory interface to the highest available at creation, to ensure the virtual function table cannot be replaced afterwards during 'QueryInterface'
+-	static constexpr IID iid_lookup[] = {
++	static const IID iid_lookup[] = {
+ 		__uuidof(IDXGIFactory),  // {7B7166EC-21C7-44AE-B21A-C9AE321AE369}
+ 		__uuidof(IDXGIFactory1), // {770AAE78-F26F-4DBA-A829-253C83D1B387}
+ 		__uuidof(IDXGIFactory2), // {50C83A1C-E072-4C48-87B0-3630FA36A6D0}
+diff --git a/source/dxgi/dxgi_adapter.cpp b/source/dxgi/dxgi_adapter.cpp
+index 025bae7..a9a2f08 100644
+--- a/source/dxgi/dxgi_adapter.cpp
++++ b/source/dxgi/dxgi_adapter.cpp
+@@ -38,7 +38,7 @@ bool DXGIAdapter::check_and_upgrade_interface(REFIID riid)
+ 		riid == __uuidof(IDXGIObject))
+ 		return true;
+ 
+-	static constexpr IID iid_lookup[] = {
++	static const IID iid_lookup[] = {
+ 		__uuidof(IDXGIAdapter),  // {2411E7E1-12AC-4CCF-BD14-9798E8534dC0}
+ 		__uuidof(IDXGIAdapter1), // {29038F61-3839-4626-91FD-086879011A05}
+ 		__uuidof(IDXGIAdapter2), // {0AA1AE0A-FA0E-4B84-8644-E05FF8E5ACB5}
+diff --git a/source/dxgi/dxgi_device.cpp b/source/dxgi/dxgi_device.cpp
+index e2f59ea..54c57e8 100644
+--- a/source/dxgi/dxgi_device.cpp
++++ b/source/dxgi/dxgi_device.cpp
+@@ -27,7 +27,7 @@ bool DXGIDevice::check_and_upgrade_interface(REFIID riid)
+ 		riid == __uuidof(IDXGIObject))
+ 		return true;
+ 
+-	static constexpr IID iid_lookup[] = {
++	static const IID iid_lookup[] = {
+ 		__uuidof(IDXGIDevice),  // {54EC77FA-1377-44E6-8C32-88FD5F44C84C}
+ 		__uuidof(IDXGIDevice1), // {77DB970F-6276-48BA-BA28-070143b4392C}
+ 		__uuidof(IDXGIDevice2), // {05008617-FBFD-4051-A790-144884b4f6A9}
+diff --git a/source/dxgi/dxgi_factory.cpp b/source/dxgi/dxgi_factory.cpp
+index 49784cd..092ceac 100644
+--- a/source/dxgi/dxgi_factory.cpp
++++ b/source/dxgi/dxgi_factory.cpp
+@@ -35,7 +35,7 @@ bool DXGIFactory::check_and_upgrade_interface(REFIID riid)
+ 		riid == __uuidof(IDXGIObject))
+ 		return true;
+ 
+-	static constexpr IID iid_lookup[] = {
++	static const IID iid_lookup[] = {
+ 		__uuidof(IDXGIFactory),  // {7B7166EC-21C7-44AE-B21A-C9AE321AE369}
+ 		__uuidof(IDXGIFactory1), // {770AAE78-F26F-4DBA-A829-253C83D1B387}
+ 		__uuidof(IDXGIFactory2), // {50C83A1C-E072-4C48-87B0-3630FA36A6D0}
+diff --git a/source/dxgi/dxgi_swapchain.cpp b/source/dxgi/dxgi_swapchain.cpp
+index ce7d6ac..acca469 100644
+--- a/source/dxgi/dxgi_swapchain.cpp
++++ b/source/dxgi/dxgi_swapchain.cpp
+@@ -141,7 +141,7 @@ bool DXGISwapChain::check_and_upgrade_interface(REFIID riid)
+ 		riid == __uuidof(IDXGIDeviceSubObject))
+ 		return true;
+ 
+-	static constexpr IID iid_lookup[] = {
++	static const IID iid_lookup[] = {
+ 		__uuidof(IDXGISwapChain),
+ 		__uuidof(IDXGISwapChain1),
+ 		__uuidof(IDXGISwapChain2),
+diff --git a/source/hook_manager.hpp b/source/hook_manager.hpp
+index f818fc1..3b5f02c 100644
+--- a/source/hook_manager.hpp
++++ b/source/hook_manager.hpp
+@@ -72,6 +72,29 @@ namespace reshade::hooks
+ 		return reinterpret_cast<T>(call(reinterpret_cast<hook::address>(replacement), target));
+ 	}
+ 
++#ifdef __MINGW32__
++	// MinGW/Clang: MSVC implicitly converts function pointers to void*, standard C++ does not
++	template <typename T>
++	inline hook::address to_hook_address(T value) { return (hook::address)(value); }
++	template <typename F, typename G, std::enable_if_t<(std::is_function_v<std::remove_pointer_t<F>> || std::is_function_v<std::remove_pointer_t<G>>) && !std::is_same_v<F, hook::address *>, int> = 0>
++	inline bool install(const char *name, F target, G replacement, bool queue_enable = false)
++	{
++		return install(name, to_hook_address(target), to_hook_address(replacement), queue_enable);
++	}
++	template <typename G, std::enable_if_t<std::is_function_v<std::remove_pointer_t<G>>, int> = 0>
++	inline bool install(const char *name, hook::address vtable[], size_t vtable_index, G replacement)
++	{
++		return install(name, vtable, vtable_index, to_hook_address(replacement));
++	}
++	template <typename F, std::enable_if_t<std::is_function_v<std::remove_pointer_t<F>>, int> = 0>
++	inline bool is_hooked(F target) { return is_hooked(to_hook_address(target)); }
++	template <typename T, typename U, std::enable_if_t<std::is_function_v<std::remove_pointer_t<U>>, int> = 0>
++	inline T call(T replacement, U target)
++	{
++		return reinterpret_cast<T>(call(reinterpret_cast<hook::address>(replacement), to_hook_address(target)));
++	}
++#endif
++
+ 	/// <summary>
+ 	/// Gets the virtual function table of the specified object.
+ 	/// </summary>
+diff --git a/source/ini_file.hpp b/source/ini_file.hpp
+index aa4e293..2660da0 100644
+--- a/source/ini_file.hpp
++++ b/source/ini_file.hpp
+@@ -320,7 +320,7 @@ namespace reshade
+ 		const std::filesystem::path _path;
+ 		std::unordered_map<std::string, section_type> _sections;
+ 		bool _modified = false;
+-		std::filesystem::file_time_type _modified_at;
++		std::filesystem::file_time_type _modified_at = std::filesystem::file_time_type::min();
+ 	};
+ 
+ 	/// <summary>
+diff --git a/source/opengl/opengl_hooks_wgl.cpp b/source/opengl/opengl_hooks_wgl.cpp
+index cdc0d0a..4db95dd 100644
+--- a/source/opengl/opengl_hooks_wgl.cpp
++++ b/source/opengl/opengl_hooks_wgl.cpp
+@@ -1,8 +1,10 @@
++#include <filesystem>
+ /*
+  * Copyright (C) 2014 Patrick Mours
+  * SPDX-License-Identifier: BSD-3-Clause OR MIT
+  */
+ 
++std::filesystem::path get_system_path();
+ #include "opengl_impl_device.hpp"
+ #include "opengl_impl_device_context.hpp"
+ #include "opengl_impl_swapchain.hpp"
+@@ -1048,7 +1050,6 @@ extern "C" BOOL  WINAPI wglMakeCurrent(HDC hdc, HGLRC hglrc)
+ 
+ 				if (nullptr == proc_address)
+ 				{
+-					extern std::filesystem::path get_system_path();
+ 
+ 					// Load from the Windows OpenGL DLL if that fails
+ 					const HMODULE opengl_module = GetModuleHandleW((get_system_path() / L"opengl32.dll").c_str());
+diff --git a/source/opengl/opengl_impl_device.cpp b/source/opengl/opengl_impl_device.cpp
+index e659863..680872f 100644
+--- a/source/opengl/opengl_impl_device.cpp
++++ b/source/opengl/opengl_impl_device.cpp
+@@ -2174,6 +2174,7 @@ bool reshade::opengl::device_impl::create_pipeline(api::pipeline_layout, uint32_
+ 		}
+ 	}
+ 
++	{ // mingw: scope for goto
+ 	pipeline_impl *const impl = new pipeline_impl();
+ 
+ 	if (!shaders.empty())
+@@ -2278,6 +2279,7 @@ bool reshade::opengl::device_impl::create_pipeline(api::pipeline_layout, uint32_
+ 	*out_pipeline = { reinterpret_cast<uintptr_t>(impl) };
+ 	return true;
+ 
++	} // mingw: scope for goto
+ exit_failure:
+ 	for (const GLuint shader : shaders)
+ 		gl.DeleteShader(shader);
+diff --git a/source/openvr/openvr.cpp b/source/openvr/openvr.cpp
+index 819730e..07a3b1f 100644
+--- a/source/openvr/openvr.cpp
++++ b/source/openvr/openvr.cpp
+@@ -23,6 +23,9 @@
+ #include <functional>
+ #include <ivrclientcore.h>
+ 
++extern thread_local reshade::opengl::device_context_impl *g_opengl_context;
++extern lockfree_linear_map<void *, reshade::vulkan::device_impl *, 8> g_vulkan_devices;
++
+ // There can only be a single global effect runtime in OpenVR (since its API is based on singletons)
+ static reshade::openvr::swapchain_impl *s_vr_swapchain = nullptr;
+ 
+@@ -206,7 +209,6 @@ static vr::EVRCompositorError on_vr_submit_d3d12(vr::IVRCompositor *compositor,
+ static vr::EVRCompositorError on_vr_submit_opengl(vr::IVRCompositor *compositor, vr::EVREye eye, const vr::Texture_t *texture, const vr::VRTextureBounds_t *bounds, uint32_t layer, vr::EVRSubmitFlags flags,
+ 	std::function<vr::EVRCompositorError(vr::EVREye eye, const vr::Texture_t *texture, const vr::VRTextureBounds_t *bounds, uint32_t layer, vr::EVRSubmitFlags flags)> submit)
+ {
+-	extern thread_local reshade::opengl::device_context_impl *g_opengl_context;
+ 
+ 	if (g_opengl_context == nullptr)
+ 		return submit(eye, texture, bounds, layer, flags);
+@@ -254,7 +256,6 @@ static vr::EVRCompositorError on_vr_submit_opengl(vr::IVRCompositor *compositor,
+ static vr::EVRCompositorError on_vr_submit_vulkan(vr::IVRCompositor *compositor, vr::EVREye eye, const vr::Texture_t *texture, const vr::VRTextureBounds_t *bounds, uint32_t layer, vr::EVRSubmitFlags flags,
+ 	std::function<vr::EVRCompositorError(vr::EVREye eye, const vr::Texture_t *texture, const vr::VRTextureBounds_t *bounds, uint32_t layer, vr::EVRSubmitFlags flags)> submit)
+ {
+-	extern lockfree_linear_map<void *, reshade::vulkan::device_impl *, 8> g_vulkan_devices;
+ 
+ 	const auto eye_texture = static_cast<const vr::VRVulkanTextureData_t *>(texture->handle);
+ 
+diff --git a/source/openvr/openvr_impl_swapchain.cpp b/source/openvr/openvr_impl_swapchain.cpp
+index 756dc01..9696c90 100644
+--- a/source/openvr/openvr_impl_swapchain.cpp
++++ b/source/openvr/openvr_impl_swapchain.cpp
+@@ -18,6 +18,9 @@
+ #include <cmath> // std::abs, std::ceil, std::floor
+ #include <algorithm> // std::max, std::min
+ 
++extern thread_local reshade::opengl::device_context_impl *g_opengl_context;
++extern lockfree_linear_map<void *, reshade::vulkan::device_impl *, 8> g_vulkan_devices;
++
+ reshade::openvr::swapchain_impl::swapchain_impl(D3D10Device *device, vr::IVRCompositor *compositor) :
+ 	swapchain_impl(device, device, compositor)
+ {
+@@ -52,8 +55,6 @@ reshade::openvr::swapchain_impl::swapchain_impl(api::device *device, api::comman
+ 
+ reshade::openvr::swapchain_impl::~swapchain_impl()
+ {
+-	extern thread_local reshade::opengl::device_context_impl *g_opengl_context;
+-	extern lockfree_linear_map<void *, reshade::vulkan::device_impl *, 8> g_vulkan_devices;
+ 
+ 	// Do not access '_device' object to check the device API, in case it was already destroyed
+ 	if (g_opengl_context == nullptr && (_direct3d_device == nullptr && g_vulkan_devices.at(_device) == nullptr))

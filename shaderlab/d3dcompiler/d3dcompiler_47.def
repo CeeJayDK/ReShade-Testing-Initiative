@@ -1,0 +1,14 @@
+LIBRARY d3dcompiler_47.dll
+EXPORTS
+D3DCompile
+D3DCompile2
+D3DPreprocess
+D3DCreateBlob
+D3DDisassemble
+D3DGetBlobPart
+D3DGetDebugInfo
+D3DGetInputAndOutputSignatureBlob
+D3DGetInputSignatureBlob
+D3DGetOutputSignatureBlob
+D3DStripShader
+D3DReflect
