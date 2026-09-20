@@ -99,19 +99,18 @@ flags).
 
 ---
 
-## 4. Hardware cost stats (RGA)
+## 4. Hardware cost stats (RGA) — done
 
-**Why deferred:** DXBC and SPIR-V counts answer "did this edit shrink it", which
-is what the diffing workflow needs. Hardware cost is a different question.
+`fxstat --rga <path> [--asic gfx1100]` compiles each entry point's baked,
+optimised SPIR-V with RGA's `vk-spv-offline` mode and reports VALU,
+transcendentals, SALU, VMEM, scratch and VGPRs next to the counts, in JSON, and
+in the baseline diff (where it becomes the regression criterion). It lives in
+the CLI (`src/cli/rga.cpp`), not the library, because it spawns a process — the
+library stays WASM-clean. The library gained LANES/TRANS (lane-weighted ALU and
+transcendental counts) instead, which work everywhere.
 
-**What to do when you want it:** `fxstat --spirv --dump <dir>` already writes the
-optimised SPIR-V. Feed it to `rga -s vk-offline`, which runs offline on Windows
-and Linux with no GPU and no driver, and gives RDNA ISA with a VALU/SALU/VMEM/SMEM
-split, register pressure and occupancy. That split is the one that actually
-predicts whether an effect is slow.
-
-The natural shape is a `--rga <path>` option that shells out and merges the
-result into the JSON. It is a native-only feature by definition.
+Tests run only when `RGA=/path/to/rga` is set. CI does not download RGA
+(~280 MB tarball); it could, if the numbers should be checked on every push.
 
 ---
 

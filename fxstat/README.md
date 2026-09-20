@@ -81,9 +81,16 @@ Analysis:
                          -- what the driver does. Default on. SPIR-V only.
   --no-optimize          Count raw ReShadeFX output.
 
+GPU ISA (SPIR-V back end only, needs AMD's Radeon GPU Analyzer):
+  --rga <path>           Also compile each entry point with RGA and report the
+                         real GPU instructions: VALU, transcendentals, scalar
+                         ALU, texture fetches, scratch memory and registers.
+  --asic <name>          GPU to compile for (default gfx1100, RDNA3).
+
 Comparison:
   --baseline <file.json> Compare against a report written earlier by --json.
-  --fail-on-regression   Exit 2 if any count went up. For CI.
+  --fail-on-regression   Exit 2 if anything got more expensive. For CI. With
+                         --rga on both sides, judged on the GPU ISA only.
 
 Output:
   --json                 Machine-readable output.
@@ -155,6 +162,14 @@ before comparing numbers from different machines.
 | **MOV** | composite construct/extract/insert, swizzles, copies |
 | **MEM** | load / store / access chain / local variable |
 | **FLOW** | branches, loops, phi, calls, returns |
+| **LANES** | ALU instructions weighted by the component count of their result: a `float4` multiply is 4, a scalar one is 1 |
+| **TRANS** | transcendental operations (sin, cos, exp, log, sqrt, rsqrt, and the reciprocal in a division by a non-constant), weighted the same way. `pow` counts 2, `tan` 3 |
+
+The first five count *instructions*. Every GPU since about 2012 runs a vector
+operation as one scalar operation per component, so replacing four `sin()` on a
+`float4` with one scalar `sin()` is a 4x saving that the ALU column does not see
+at all. LANES and TRANS do. Transcendentals issue at quarter rate on current AMD
+and NVIDIA hardware, which is why they get their own column.
 
 Only instructions reachable from the entry point being reported are counted. A
 ReShade-generated module contains every function in the effect, so counting the
@@ -171,10 +186,59 @@ The ALU column is inflated relative to real hardware, and by a factor that
 varies per shader. These numbers are good for *diffing* and for confirming
 performance mode did its job. They are not a cost estimate.
 
-For hardware cost, feed the optimised SPIR-V that `--dump` writes to
-`rga -s vk-offline`, which gives RDNA ISA with VALU/SALU/VMEM/SMEM split,
-register pressure and occupancy. That runs offline on Windows and Linux with no
-GPU and no driver.
+For hardware cost, use `--rga`, below.
+
+## Real GPU instructions: `--rga`
+
+```
+$ fxstat -I Shaders --rga ~/rga/rga CRT.fx
+...
+GPU ISA via RGA (gfx1100) -- what the driver actually runs, per invocation:
+
+ENTRY POINT                  STAGE      VALU  TRANS   SALU   VMEM SCRATCH  VGPRs    COST
+----------------------------------------------------------------------------------------
+E__PostProcessVS             vertex       14      0     14      1       0      9      14
+E__AdvancedCRTPass           pixel       314     80     19      8       0     42     554
+```
+
+[RGA](https://github.com/GPUOpen-Tools/radeon_gpu_analyzer/releases) in
+`vk-spv-offline` mode runs the LLPC compiler from AMD's Vulkan driver, offline,
+with no GPU or driver installed, on Windows and Linux. fxstat hands it the same
+baked, optimised SPIR-V it counts, so these are the scalar instructions the GPU
+actually executes after the driver's own optimiser and register allocator. RGA
+is not bundled (large binary, AMD's own EULA); download it and pass its path.
+
+| | |
+|---|---|
+| **VALU** | vector ALU instructions, run per pixel. Includes TRANS |
+| **TRANS** | `v_exp/log/rcp/rsq/sqrt/sin/cos`, quarter rate |
+| **SALU** | scalar ALU, run once per wave: work on uniforms is nearly free here |
+| **VMEM** | texture fetches and other vector memory |
+| **SCRATCH** | spill / indexed-array memory instructions. Should be 0; flagged `!!` |
+| **VGPRs** | vector registers; fewer means more waves in flight to hide texture latency |
+| **COST** | VALU + 3 x TRANS, a relative per-invocation ALU cost. Ignores memory latency |
+
+**Why it matters, measured on SweetFX.** Pre-driver counts get the direction of
+a change wrong often enough to matter:
+
+- CRT: moving colour-only work out of a function called six times made SPIR-V
+  ALU go *up* by 27 (struct scaffolding) while the GPU ISA went *down* 76 COST.
+- Monochrome: a local array of presets, one of them a uniform, indexed by a
+  uniform. The driver built it in scratch memory, per pixel: 19 scratch
+  instructions and 30 VGPRs. A `static const` table dropped it to 15 VALU and 6
+  VGPRs. SPIR-V counts called that fix a regression (+2 ALU).
+- Nostalgia: a palette loop with a variable bound could not be unrolled, so the
+  palette array went to scratch too. A constant bound took normal-mode VALU from
+  610 to 207.
+
+In `--baseline` mode, when both reports carry ISA statistics, regressions are
+judged on COST, VMEM and SCRATCH only, and the pre-driver columns are shown for
+information.
+
+**Limits.** One vendor. NVIDIA and Intel compile differently, though the things
+that make a shader expensive on one (transcendentals, scratch, texture fetches,
+register pressure) generally do on the others. `--rga` needs the SPIR-V back
+end; RGA's DX11 mode is Windows-only and is not wired up.
 
 **Nothing here sees bandwidth.** A 9-tap and a 49-tap blur have nearly identical
 per-invocation counts. Pass count, render target format and resolution scale
@@ -257,10 +321,10 @@ no Microsoft redistributable. Its HLSL front end is not complete, so it needs
 testing against a real shader corpus first. Wine's bundled `d3dcompiler_47` is
 the same vkd3d code, not Microsoft's.
 
-**Real hardware numbers.** `VK_KHR_pipeline_executable_properties` from a small
-headless Vulkan runner gives register counts, spills and often the ISA on AMD,
-Intel and NVIDIA, on both operating systems. It is the only practical way to get
-NVIDIA numbers at all.
+**Other vendors.** `--rga` covers AMD. `VK_KHR_pipeline_executable_properties`
+from a small headless Vulkan runner gives register counts, spills and often the
+ISA on AMD, Intel and NVIDIA, on both operating systems. It is the only
+practical way to get NVIDIA numbers at all.
 
 **Bandwidth.** Reporting pass count, target format and resolution scale next to
 the instruction counts would close most of the gap without needing a runtime

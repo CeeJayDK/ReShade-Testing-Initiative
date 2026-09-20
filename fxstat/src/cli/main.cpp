@@ -9,6 +9,7 @@
 #include "fxstat/fxstat.hpp"
 #include "baseline.hpp"
 #include "report.hpp"
+#include "rga.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -60,9 +61,20 @@ Analysis:
                          -- what the driver does. Default on. SPIR-V only.
   --no-optimize          Count raw ReShadeFX output.
 
+GPU ISA (SPIR-V back end only, needs AMD's Radeon GPU Analyzer):
+  --rga <path>           Also compile each entry point with RGA and report the
+                         real GPU instructions: VALU, transcendentals, scalar
+                         ALU, texture fetches, scratch memory and registers.
+                         RGA runs AMD's Vulkan driver compiler offline, no GPU
+                         needed. Not bundled: github.com/GPUOpen-Tools/
+                         radeon_gpu_analyzer/releases
+  --asic <name>          GPU to compile for (default gfx1100, RDNA3).
+                         `rga -s vk-spv-offline -l` lists them.
+
 Comparison:
   --baseline <file.json> Compare against a report written earlier by --json.
-  --fail-on-regression   Exit 2 if any count went up. For CI.
+  --fail-on-regression   Exit 2 if anything got more expensive. For CI. With
+                         --rga on both sides, judged on the GPU ISA only.
 
 Output:
   --json                 Machine-readable output.
@@ -95,6 +107,7 @@ int main(int argc, char *argv[])
 	fxstat::compile_options options;
 	std::string source_file, preset_file, effect_section, baseline_file, dump_dir;
 	bool json = false, verbose = false, fail_on_regression = false;
+	fxstat::rga_options rga;
 
 	for (int i = 1; i < argc; ++i)
 	{
@@ -161,6 +174,8 @@ int main(int argc, char *argv[])
 		else if (arg == "--no-performance-mode")        { options.performance_mode = false; }
 		else if (arg == "--optimize")                   { options.optimize = true; }
 		else if (arg == "--no-optimize")                { options.optimize = false; }
+		else if (arg == "--rga")                        { rga.executable = next(); }
+		else if (arg == "--asic")                       { rga.asic = next(); }
 		else if (arg == "--baseline")                   { baseline_file = next(); }
 		else if (arg == "--fail-on-regression")         { fail_on_regression = true; }
 		else if (arg == "--json")                       { json = true; }
@@ -203,6 +218,16 @@ int main(int argc, char *argv[])
 		options.preset = fxstat::parse_preset(ini, section);
 	}
 
+	if (!rga.executable.empty())
+	{
+		if (options.target != fxstat::backend::spirv)
+		{
+			std::fprintf(stderr, "error: --rga needs the SPIR-V back end\n");
+			return 1;
+		}
+		options.keep_binaries = true;
+	}
+
 	const fxstat::compile_result result = fxstat::compile_file(source_file, options);
 
 	if (!result.warnings.empty())
@@ -221,9 +246,17 @@ int main(int argc, char *argv[])
 		fxstat::write_dump(dump_dir, source_file, options, result);
 	}
 
+	fxstat::isa_map isa;
+	const fxstat::isa_map *isa_ptr = nullptr;
+	if (!rga.executable.empty())
+	{
+		isa = fxstat::run_rga(rga, result);
+		isa_ptr = &isa;
+	}
+
 	if (json)
 	{
-		fxstat::print_json(stdout, source_file, options, result);
+		fxstat::print_json(stdout, source_file, options, result, isa_ptr, rga.asic);
 		return 0;
 	}
 
@@ -237,15 +270,15 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 		std::printf("%s  vs  %s\n", source_file.c_str(), baseline_file.c_str());
-		const bool regressed = fxstat::print_diff(stdout, result, baseline);
+		const bool regressed = fxstat::print_diff(stdout, result, baseline, isa_ptr);
 		if (regressed && fail_on_regression)
 		{
-			std::fprintf(stderr, "error: instruction counts went up against the baseline\n");
+			std::fprintf(stderr, "error: the effect got more expensive against the baseline\n");
 			return 2;
 		}
 		return 0;
 	}
 
-	fxstat::print_report(stdout, source_file, options, result, verbose);
+	fxstat::print_report(stdout, source_file, options, result, verbose, isa_ptr, rga.asic);
 	return 0;
 }

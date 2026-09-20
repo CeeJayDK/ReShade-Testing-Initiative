@@ -26,7 +26,7 @@ itself would give.
 | `reshadefx_cli` | crosire's own `ReShadeFXC`, unmodified. Compiles a `.fx` file and reports the exact errors ReShade would. |
 | `reshadefx_cli_fixed` | the same tool with six bug fixes applied ([docs/upstream/reshade-fxc.md](docs/upstream/reshade-fxc.md)), and `--dxbc` on Linux too. |
 | `reshadefx_rga` | per-stage SPIR-V instruction cost; optionally drives AMD's RGA for real GPU ISA and register data. |
-| `fxstat` | SPIR-V and DXBC instruction statistics, JSON output, baseline/diff mode. See [fxstat/README.md](fxstat/README.md). |
+| `fxstat` | SPIR-V and DXBC instruction statistics, lane-weighted ALU and transcendental counts, optional real AMD GPU ISA via RGA (`--rga`), JSON output, baseline/diff mode. See [fxstat/README.md](fxstat/README.md). |
 | `reshadefx_coverage` | how much of a shader corpus compiles to DXBC, per shader model. |
 
 More detail on each:

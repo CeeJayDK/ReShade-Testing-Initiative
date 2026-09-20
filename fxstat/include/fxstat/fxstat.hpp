@@ -45,6 +45,24 @@ struct shader_stats
 	uint32_t functions = 0;
 	std::map<std::string, uint32_t> by_opcode;
 
+	// SPIR-V only. The counts above are per instruction, but every GPU since
+	// about 2012 runs a float4 operation as four scalar ones, so replacing four
+	// vector sin() with one scalar sin() looks like no change in `alu` while it
+	// is a 4x saving on the hardware. These weight each ALU instruction by the
+	// component count of its result type.
+	//
+	//   alu_lanes    ALU instructions x components
+	//   trans        transcendental operations: sin, cos, exp, log, sqrt,
+	//                rsqrt, and the reciprocal inside a division. pow counts 2
+	//                (log + exp), tan 3 (sin, cos, divide). These run at quarter
+	//                rate on current AMD and NVIDIA hardware.
+	//   trans_lanes  the same, x components
+	//
+	// Still an estimate of what the driver emits; --rga gives the real ISA.
+	uint32_t alu_lanes = 0;
+	uint32_t trans = 0;
+	uint32_t trans_lanes = 0;
+
 	uint32_t get(category c) const { return counts[static_cast<size_t>(c)]; }
 };
 

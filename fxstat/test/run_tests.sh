@@ -114,4 +114,55 @@ else
   check "d3dcompiler refusal message" 1 "$msg"
 fi
 
+# --- lane weighting: a float4 op costs 4 on the GPU, a scalar one 1 ---
+echo "lane-weighted counts:"
+T=$(mktemp -d)
+cat > "$T/vec.fx" <<'FX'
+#include "ReShade.fxh"
+float4 PS(float4 p : SV_Position, float2 uv : TEXCOORD) : SV_Target { return sin(tex2D(ReShade::BackBuffer, uv)); }
+technique T { pass { VertexShader = PostProcessVS; PixelShader = PS; } }
+FX
+sed 's/return sin(tex2D(ReShade::BackBuffer, uv));/return sin(tex2D(ReShade::BackBuffer, uv).x).xxxx;/' "$T/vec.fx" > "$T/scalar.fx"
+lanes() { # file field
+  $FXSTAT -I "$SHADERS/Shaders" --json "$1" 2>/dev/null |
+    python3 -c "import json,sys;e=[x for x in json.load(sys.stdin)['entry_points'] if x['stage']=='pixel'][0];print(e['$2'])"
+}
+check "float4 sin: trans"            1 "$(lanes "$T/vec.fx" trans)"
+check "float4 sin: trans_lanes"      4 "$(lanes "$T/vec.fx" trans_lanes)"
+check "scalar sin: trans_lanes"      1 "$(lanes "$T/scalar.fx" trans_lanes)"
+check "LumaSharpen alu_lanes"        33 "$(get '' alu_lanes)"
+
+
+# --- real GPU ISA, only when RGA is available (RGA=/path/to/rga) ---
+if [ -n "${RGA:-}" ] && [ -x "$RGA" ]; then
+  echo "GPU ISA via RGA:"
+  cat > "$T/scratch.fx" <<'FX'
+#include "ReShade.fxh"
+uniform int Index < ui_type = "slider"; ui_min = 0; ui_max = 15; > = 2;
+float4 PS(float4 p : SV_Position, float2 uv : TEXCOORD) : SV_Target
+{
+	float3 c = tex2D(ReShade::BackBuffer, uv).rgb;
+	// Small arrays become selects; from about a dozen entries up the driver
+	// builds the array in scratch memory when the index is not a constant.
+	float3 a[16] = { c, c.gbr, c.brg, c * 0.5, c.gbr * 0.5, c.brg * 0.5, c * 0.25, c.gbr * 0.25,
+	                 c.brg * 0.25, c * 2.0, c.gbr * 2.0, c.brg * 2.0, 1.0 - c, 1.0 - c.gbr, 1.0 - c.brg, c * c };
+	return float4(a[Index], 1.0);
+}
+technique T { pass { VertexShader = PostProcessVS; PixelShader = PS; } }
+FX
+  isa() { # file field [extra args]
+    $FXSTAT -I "$SHADERS/Shaders" --rga "$RGA" --json ${3:-} "$1" 2>/dev/null |
+      python3 -c "import json,sys;e=[x for x in json.load(sys.stdin)['entry_points'] if x['stage']=='pixel'][0];print(e['isa']['$2'])"
+  }
+  check "LumaSharpen TEX fetches (ISA)"  5 "$(isa "$SWEETFX/Shaders/SweetFX/LumaSharpen.fx" vmem)"
+  check "LumaSharpen no scratch"         0 "$(isa "$SWEETFX/Shaders/SweetFX/LumaSharpen.fx" scratch)"
+  s=$(isa "$T/scratch.fx" scratch --no-performance-mode)
+  if [ "${s:-0}" -gt 0 ]; then printf "  ok    %-42s %s\n" "dynamic array index uses scratch" "$s"
+  else printf "  FAIL  %-42s %s\n" "dynamic array index uses scratch" "${s:-none}"; fail=1; fi
+  check "same array, perf mode: no scratch" 0 "$(isa "$T/scratch.fx" scratch)"
+else
+  echo "GPU ISA: set RGA=/path/to/rga to run these, skipping"
+fi
+rm -rf "$T"
+
 exit $fail

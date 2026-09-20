@@ -100,10 +100,14 @@ bool fxstat::load_baseline(const std::string &path, std::map<std::string, baseli
 		{
 			find_string(text, "stage", open, close, entry.stage);
 			// Read the top-level counts only: stop the search for each key at the
-			// start of the nested "unoptimized" object if there is one.
-			size_t counts_limit = text.find("\"unoptimized\"", open);
-			if (counts_limit == std::string::npos || counts_limit > close)
-				counts_limit = close;
+			// start of the first nested object ("unoptimized" or "isa").
+			size_t counts_limit = close;
+			for (const char *nested : { "\"unoptimized\"", "\"isa\"" })
+			{
+				const size_t n = text.find(nested, open);
+				if (n != std::string::npos && n < counts_limit)
+					counts_limit = n;
+			}
 
 			find_number(text, "tex", open, counts_limit, entry.tex);
 			find_number(text, "alu", open, counts_limit, entry.alu);
@@ -111,6 +115,20 @@ bool fxstat::load_baseline(const std::string &path, std::map<std::string, baseli
 			find_number(text, "mem", open, counts_limit, entry.mem);
 			find_number(text, "flow", open, counts_limit, entry.flow);
 			find_number(text, "total", open, counts_limit, entry.total);
+			entry.has_lanes = find_number(text, "alu_lanes", open, counts_limit, entry.alu_lanes);
+			find_number(text, "trans_lanes", open, counts_limit, entry.trans_lanes);
+
+			const size_t isa = text.find("\"isa\"", open);
+			if (isa != std::string::npos && isa < close)
+			{
+				const size_t isa_close = text.find('}', isa);
+				entry.has_isa = find_number(text, "valu", isa, isa_close, entry.isa_valu);
+				find_number(text, "trans", isa, isa_close, entry.isa_trans);
+				find_number(text, "salu", isa, isa_close, entry.isa_salu);
+				find_number(text, "vmem", isa, isa_close, entry.isa_vmem);
+				find_number(text, "scratch", isa, isa_close, entry.isa_scratch);
+				find_number(text, "vgprs", isa, isa_close, entry.isa_vgprs);
+			}
 			out[name] = entry;
 		}
 

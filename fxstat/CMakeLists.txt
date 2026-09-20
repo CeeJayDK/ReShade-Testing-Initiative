@@ -129,7 +129,8 @@ endif()
 add_executable(fxstat
 	src/cli/main.cpp
 	src/cli/report.cpp
-	src/cli/baseline.cpp)
+	src/cli/baseline.cpp
+	src/cli/rga.cpp)
 
 target_include_directories(fxstat PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/cli")
 target_link_libraries(fxstat PRIVATE fxstat_core)
