@@ -52,6 +52,15 @@ endif()
 # SPIRV-Tools -- linked, not shelled out to. See src/core/optimize.cpp.
 # ---------------------------------------------------------------------------
 
+# On MinGW, find_library searches .dll.a before .a, so MSYS2's SPIRV-Tools
+# import libraries win and the exe ends up needing libSPIRV-Tools*.dll at run
+# time -- which -static below cannot undo, because the import library is named
+# explicitly on the link line. It then builds fine and dies on launch with
+# 0xC0000135 (STATUS_DLL_NOT_FOUND) and no output. Static only.
+if(MINGW)
+	set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+endif()
+
 find_path(SPIRV_TOOLS_INCLUDE_DIR spirv-tools/optimizer.hpp)
 find_library(SPIRV_TOOLS_OPT_LIB SPIRV-Tools-opt)
 find_library(SPIRV_TOOLS_LIB SPIRV-Tools)

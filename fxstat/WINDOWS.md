@@ -7,10 +7,17 @@ Read this before trusting a Windows number.
 | | status |
 |---|---|
 | Cross-compiles for Windows (MinGW-w64) | **verified** |
-| Links to a single standalone `fxstat.exe`, no runtime DLLs needed | **verified** |
+| Links to a single standalone `fxstat.exe`, no runtime DLLs needed | **not until now** |
 | Runs, loads `d3dcompiler_47.dll`, reports it as the DXBC compiler | **verified** |
 | Dispatches to the D3DCompiler path with the right flags | **verified** |
 | D3DCompiler actually compiling ReShade effects | **NOT verified** |
+
+The standalone row was wrong until CI caught it. `find_library` on MinGW
+searches `.dll.a` before `.a`, so MSYS2's SPIRV-Tools import libraries were
+picked up and named on the link line, which `-static` does not override. The
+exe built, then failed to launch with `0xC0000135` (STATUS_DLL_NOT_FOUND) and
+no output unless `msys64\mingw64\bin` was on `PATH`. `CMakeLists.txt` now
+restricts the library search to `.a` on MinGW.
 
 The last row could not be tested here. The only Windows available in this
 environment was Wine, and Wine's `d3dcompiler_47.dll` is not Microsoft's — it is
