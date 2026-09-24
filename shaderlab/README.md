@@ -115,6 +115,9 @@ Known limits:
   vkd3d-shader rejects it (`E5017: Unhandled attribute 'fastopt'`; e.g. qUINT_dof,
   PD80_02_Bloom, AstrayFX Flair). `patches/reshade-loop-attribute.patch` makes this
   ReShade build emit `[loop]` instead, which means the same to the compiler.
+  Reported upstream: `docs/upstream/vkd3d/ISSUE-fastopt.md`.
+- vkd3d-shader has no `isnan` (`E5005`; e.g. Fubax PerfectPerspective). Report:
+  `docs/upstream/vkd3d/ISSUE-isnan.md`. No workaround here.
 - ReShade selects an effect by its file name. If two files with the same name are on
   the search path (e.g. an original and a modified copy in another folder), both are
   loaded and both run. To compare an original with a modified copy, render the copy
