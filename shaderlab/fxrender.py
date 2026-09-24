@@ -42,6 +42,16 @@ def ensure_display(env):
         return None
     disp = ":97"
     lock = Path(f"/tmp/.X{disp[1:]}-lock")
+    if lock.exists():
+        # A lock left behind by an Xvfb that is gone (killed, container restart) would
+        # otherwise make every run fail with "Failed to create Win32 window".
+        try:
+            alive = Path(f"/proc/{int(lock.read_text().strip())}").exists()
+        except (OSError, ValueError):
+            alive = False
+        if not alive:
+            lock.unlink(missing_ok=True)
+            Path(f"/tmp/.X11-unix/X{disp[1:]}").unlink(missing_ok=True)
     if not lock.exists():
         subprocess.Popen(["Xvfb", disp, "-screen", "0", "1920x1080x24", "-nolisten", "tcp"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
