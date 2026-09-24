@@ -131,6 +131,9 @@ cp "$D/d3dcompiler_47.dll" "$OUT/build/fxcw/"
 x86_64-w64-mingw32-gcc -O2 "$HERE/mingw/fxcw.c" -o "$OUT/build/fxcw/fxcw.exe" -ld3dcompiler_47
 R="$SRC/reshade"
 ( cd "$R" && git apply --check "$HERE/patches/reshade-mingw.patch" 2>/dev/null && git apply "$HERE/patches/reshade-mingw.patch" ) || echo "   (ReShade patch already applied)"
+# vkd3d-shader does not implement [fastopt], which ReShade emits for [loop] loops at
+# SM 4+ ("E5017: Unhandled attribute 'fastopt'"); [loop] means the same to the compiler.
+( cd "$R" && git apply --check "$HERE/patches/reshade-loop-attribute.patch" 2>/dev/null && git apply "$HERE/patches/reshade-loop-attribute.patch" ) || echo "   (loop attribute patch already applied)"
 sed -i 's/defined(_MSC_VER) || !defined(_WIN32)/1/' "$R"/deps/d3d12/include/directx/*.h
 # vkd3d does not support the RootSignature attribute or expressions in [numthreads]; D3D11 ignores the former
 python3 - "$R/res/shaders/mipmap_cs_5_0.hlsl" "$OUT/build/fxcw/mipmap_cs.hlsl" <<'EOF'
