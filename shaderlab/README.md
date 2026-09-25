@@ -125,6 +125,9 @@ Known limits:
 
 ## Issues found in ShaderLab itself (worth reporting upstream)
 
+Report for the author, with code locations and suggested fixes:
+`docs/upstream/shaderlab/ISSUE.md`.
+
 - `render` reports success when the effect failed to compile, and writes the
   unprocessed image. fxrender reads ReShade.log itself because of this.
 - `render --shader` adds the shader's folder to `EffectSearchPaths` in
