@@ -84,6 +84,14 @@ if [ ! -f "$R/source/effect_parser.hpp" ]; then
 	rm -rf "$R"
 	git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$RESHADE_REF" https://github.com/crosire/reshade.git "$R"
 fi
+# Local patches to the reshade checkout (patches/*.patch), applied once.
+for P in "$SCRIPT_DIR"/patches/*.patch; do
+	[ -f "$P" ] || continue
+	if ! git -C "$R" apply --reverse --check "$P" 2>/dev/null; then
+		echo "Applying $(basename "$P") ..."
+		git -C "$R" apply "$P"
+	fi
+done
 if [ ! -f "$R/deps/spirv/include/spirv/unified1/spirv.hpp" ]; then
 	echo "Fetching SPIR-V headers (the commit reshade $RESHADE_REF pins) ..."
 	git -C "$R" submodule update --quiet --init --depth 1 deps/spirv
