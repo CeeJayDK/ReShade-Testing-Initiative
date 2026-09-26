@@ -134,6 +134,8 @@ R="$SRC/reshade"
 # vkd3d-shader does not implement [fastopt], which ReShade emits for [loop] loops at
 # SM 4+ ("E5017: Unhandled attribute 'fastopt'"); [loop] means the same to the compiler.
 ( cd "$R" && git apply --check "$HERE/patches/reshade-loop-attribute.patch" 2>/dev/null && git apply "$HERE/patches/reshade-loop-attribute.patch" ) || echo "   (loop attribute patch already applied)"
+# vkd3d-shader has no isnan (docs/upstream/vkd3d/ISSUE-isnan.md): emit (x != x).
+( cd "$R" && git apply --check "$HERE/patches/reshade-isnan.patch" 2>/dev/null && git apply "$HERE/patches/reshade-isnan.patch" ) || echo "   (isnan patch already applied)"
 sed -i 's/defined(_MSC_VER) || !defined(_WIN32)/1/' "$R"/deps/d3d12/include/directx/*.h
 # vkd3d does not support the RootSignature attribute or expressions in [numthreads]; D3D11 ignores the former
 python3 - "$R/res/shaders/mipmap_cs_5_0.hlsl" "$OUT/build/fxcw/mipmap_cs.hlsl" <<'EOF'

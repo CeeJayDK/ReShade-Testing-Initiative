@@ -117,7 +117,8 @@ Known limits:
   ReShade build emit `[loop]` instead, which means the same to the compiler.
   Reported upstream: `docs/upstream/vkd3d/ISSUE-fastopt.md`.
 - vkd3d-shader has no `isnan` (`E5005`; e.g. Fubax PerfectPerspective). Report:
-  `docs/upstream/vkd3d/ISSUE-isnan.md`. No workaround here.
+  `docs/upstream/vkd3d/ISSUE-isnan.md`. `patches/reshade-isnan.patch` makes this ReShade
+  build emit `(x != x)` instead (NaN is the only value not equal to itself).
 - ReShade selects an effect by its file name. If two files with the same name are on
   the search path (e.g. an original and a modified copy in another folder), both are
   loaded and both run. To compare an original with a modified copy, render the copy
