@@ -127,3 +127,21 @@ its per-pass count is low.
 
 **Real fix:** a headless timestamp-query benchmark. Much larger, and a different
 kind of tool.
+
+---
+
+## 6. Reusable GitHub Action for shader repos (idea)
+
+**Owner's idea (2026-09-25).** A workflow kept in this repo that shader authors can
+copy into their own repos (e.g. SweetFX): on every push that changes `.fx`/`.fxh`
+files, build or download the RTI tools, compile each changed effect (HLSL, SPIR-V,
+DXBC via vkd3d), optionally render it with ShaderLab and collect `fxstat` numbers,
+then commit a status file (or a README table) so visitors see which effects compile
+and what they cost.
+
+**Next step:** a `workflows/shader-check.yml` template plus a small script that
+writes the status file; test it on a fork of SweetFX.
+
+**What will bite:** tool build time on every run (cache the binaries or publish
+them as release assets), ShaderLab needs Wine + Xvfb on the runner, and a workflow
+that commits back to the repo needs write permission and must not trigger itself.

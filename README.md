@@ -203,6 +203,13 @@ Downloaded sources (ReShade, the SPIR-V headers that ReShade tag pins, and
 vkd3d) are cached in `.deps/`. The first full build takes a few minutes, mostly
 vkd3d; after that it is quick. Delete `.deps/` to start clean.
 
+`patches/*.patch` are applied to the ReShade checkout once. Today there is one:
+`reshade-include-names.patch` makes `#include` names behave as on Windows when
+building on Linux/macOS: `\` is a path separator (iMMERSE includes
+`".\MartysMods\mmx_global.fxh"`), and a name not found as written is matched
+ignoring letter case (OtisFX includes `"Reshade.fxh"`). ReShade assumes Windows,
+so effects are written that way.
+
 Don't want to build anything? Every push to `main` builds and tests both
 platforms in CI — grab the latest binaries from the
 [Actions tab](https://github.com/CeeJayDK/ReShade-Testing-Initiative/actions/workflows/build.yml)

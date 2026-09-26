@@ -1,0 +1,14 @@
+diff --git a/source/effect_symbol_table_intrinsics.inl b/source/effect_symbol_table_intrinsics.inl
+index 2c9e2d3d..2ba9bf84 100644
+--- a/source/effect_symbol_table_intrinsics.inl
++++ b/source/effect_symbol_table_intrinsics.inl
+@@ -1868,7 +1868,8 @@ IMPLEMENT_INTRINSIC_GLSL(isnan, 0, {
+ 	code += "isnan(" + id_to_name(args[0].base) + ')';
+ 	})
+ IMPLEMENT_INTRINSIC_HLSL(isnan, 0, {
+-	code += "isnan(" + id_to_name(args[0].base) + ')';
++	// RTI: vkd3d-shader has no isnan; NaN is the only value not equal to itself.
++	code += "(" + id_to_name(args[0].base) + " != " + id_to_name(args[0].base) + ')';
+ 	})
+ IMPLEMENT_INTRINSIC_SPIRV(isnan, 0, {
+ 	return
