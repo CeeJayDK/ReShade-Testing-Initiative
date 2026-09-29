@@ -55,6 +55,7 @@ Tested on Ubuntu 24.04 (Wine 9.0, Mesa 25.2 llvmpipe).
 | `--perf-mode` | ReShade performance mode (uniforms become constants) |
 | `-f N` | frames rendered before capture (default 5; raise for temporal effects) |
 | `--diff FILE` | difference image, 8x amplified, 128 grey = unchanged |
+| `--reference FILE` | score the output against another image, e.g. the original shader's output. See [Comparing outputs](#comparing-outputs) |
 | `--json` | machine-readable result |
 | `--keep-log FILE` | keep ReShade.log |
 
@@ -62,6 +63,36 @@ Exit codes: 0 = compiled and rendered, 1 = compile error / ReShade error / rende
 failure, 2 = usage or setup problem. On failure no output image is written. If
 the output is identical to the input, you get a warning, because that usually
 means the effect was not applied.
+
+## Comparing outputs
+
+When you rewrite or optimize a shader, the question is whether the new output is close
+enough to the old one. `imgcompare.py` answers that for any two images of the same size,
+and `fxrender.py --reference` runs the same comparison on each render.
+
+```
+./fxrender.py Original.fx -i shot.png -o original.png
+./fxrender.py Fast.fx -i shot.png -o fast.png --reference original.png
+[OK] Fast.fx  techniques=Fast  2.6s
+  vs reference: ssimulacra2 95.0881  psnr 71.577 dB  max_abs_diff 1  mean_abs_diff 0.0045  changed 0.468%
+
+./imgcompare.py original.png fast.png --diff diff.png --json
+```
+
+| field | |
+|---|---|
+| `max_abs_diff`, `mean_abs_diff` | in 8-bit levels. `max_abs_diff` 0 means identical |
+| `changed_pixels_pct` | pixels where any channel differs |
+| `psnr_db` | `null` when identical |
+| `ssimulacra2` | perceptual score. 100 = identical, 90 = can't be told apart at 1:1, 70 = high quality, 50 = medium, 30 = low |
+
+SSIMULACRA 2 runs on the CPU with numpy, in about 2 s at 1280x720. It's a port of
+libjxl's `ssimulacra2` tool (v0.11.1) that repeats libjxl's float32 arithmetic step by
+step, not just its formulas. That matters close to 100, where libjxl's own rounding
+moves the score by points: an image off by one level everywhere scores 93.6 in libjxl,
+and 96.5 if the blur is computed exactly. `tests/ssimulacra2_check.sh` compares the two
+on 22 image pairs (JPEG, blur, noise, gamma, odd sizes, alpha, LumaSharpen settings);
+they agree to within 0.0001. The script's header shows how to build the reference tool.
 
 ## What was needed, and why
 
@@ -97,6 +128,8 @@ independently:
   expected curves.
 - **Uniform packing** (float/int/bool/float2): exact.
 - **Syntax errors**: reported with the correct line, and no image is written.
+- **SSIMULACRA 2** (`tests/ssimulacra2_check.sh`, needs libjxl's tool): within 0.0001
+  of libjxl on 22 image pairs.
 
 All 29 SweetFX effects compile and render, in about 3 s each. Five leave the
 test image unchanged at their default settings (LiftGammaGain, Tonemap,

@@ -9,6 +9,7 @@ writes the unprocessed image).
 
   fxrender.py LumaSharpen.fx -i shot.png -o out.png --set sharp_strength=1.5
   fxrender.py MyEffect.fx -i shot.png -o out.png --perf-mode --json
+  fxrender.py Fast.fx -i shot.png -o fast.png --reference original.png   # how close is it?
 
 Exit code: 0 = compiled and rendered, 1 = compile error / render failure,
 2 = usage or environment problem.
@@ -188,6 +189,8 @@ def main():
     ap.add_argument("--perf-mode", action="store_true", help="ReShade performance mode (uniforms baked as constants)")
     ap.add_argument("-f", "--settle-frames", type=int, default=5, help="frames before capture (raise for temporal effects)")
     ap.add_argument("--diff", type=Path, help="also write an amplified difference image (128 = unchanged)")
+    ap.add_argument("--reference", type=Path, help="score the output against this image (e.g. the original "
+                    "shader's output): abs difference, PSNR, SSIMULACRA 2 (see imgcompare.py)")
     ap.add_argument("--json", action="store_true", help="machine-readable result on stdout")
     ap.add_argument("--keep-log", type=Path, help="copy ReShade.log here")
     ap.add_argument("--timeout", type=int, default=300)
@@ -198,6 +201,8 @@ def main():
         print(f"shader not found: {fx}", file=sys.stderr); return 2
     if not args.input.is_file():
         print(f"input not found: {args.input}", file=sys.stderr); return 2
+    if args.reference and not args.reference.is_file():
+        print(f"reference not found: {args.reference}", file=sys.stderr); return 2
     if not (APP_DIR / "ShaderLab.exe").is_file():
         print(f"ShaderLab runtime not found in {APP_DIR} (run setup_runtime.sh)", file=sys.stderr); return 2
 
@@ -275,6 +280,13 @@ def main():
                 result["warning"] = "output is identical to input - effect had no visible effect (or was not applied)"
         if args.diff and st and "size" in st:
             write_diff(args.input, out, args.diff); result["diff"] = str(args.diff.resolve())
+        if ok and args.reference:
+            sys.path.insert(0, str(HERE))
+            import imgcompare
+            try:
+                result["reference"] = {"image": str(args.reference.resolve()), **imgcompare.compare(args.reference, out)}
+            except ValueError as e:
+                result["reference"] = {"image": str(args.reference.resolve()), "error": str(e)}
     if not ok and out.is_file():
         # ShaderLab writes the unprocessed image when compilation fails; don't leave a misleading file
         out.unlink(); result["output"] = None
@@ -293,6 +305,14 @@ def main():
             print(f"  reshade: {e}")
         if "image" in result:
             print(f"  image: {result['image']}")
+        ref = result.get("reference")
+        if ref:
+            if "error" in ref:
+                print(f"  reference: {ref['error']}")
+            else:
+                psnr = "inf" if ref["psnr_db"] is None else f"{ref['psnr_db']} dB"
+                print(f"  vs reference: ssimulacra2 {ref['ssimulacra2']}  psnr {psnr}  max_abs_diff {ref['max_abs_diff']}"
+                      f"  mean_abs_diff {ref['mean_abs_diff']}  changed {ref['changed_pixels_pct']}%")
         if result.get("warning"):
             print(f"  WARNING: {result['warning']}")
         if result["output"]:
