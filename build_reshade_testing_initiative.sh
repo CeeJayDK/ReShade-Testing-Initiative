@@ -117,7 +117,10 @@ EOF
 # --- vkd3d-shader (only for the tools that need --dxbc on Linux) -------------
 
 VKD3D="$DEPS_DIR/vkd3d"
-if [ "$NEED_VKD3D" -eq 1 ] && [ ! -f "$VKD3D/libvkd3d-shader.a" ]; then
+# Rebuilt when missing, or when patches/vkd3d changed since it was built.
+VKD3D_PATCHES="$(cat "$SCRIPT_DIR"/patches/vkd3d/*.patch 2>/dev/null | cksum)"
+if [ "$NEED_VKD3D" -eq 1 ] && { [ ! -f "$VKD3D/libvkd3d-shader.a" ] ||
+		[ "$(cat "$VKD3D/patches.cksum" 2>/dev/null)" != "$VKD3D_PATCHES" ]; }; then
 	bash "$SCRIPT_DIR/tools/build-vkd3d-shader.sh" "$VKD3D"
 fi
 

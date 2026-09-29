@@ -1,0 +1,48 @@
+diff --git a/libs/vkd3d/libs/vkd3d-shader/hlsl_constant_ops.c b/libs/vkd3d/libs/vkd3d-shader/hlsl_constant_ops.c
+index e1bbcac..2fa7674 100644
+--- a/libs/vkd3d/libs/vkd3d-shader/hlsl_constant_ops.c
++++ b/libs/vkd3d/libs/vkd3d-shader/hlsl_constant_ops.c
+@@ -998,7 +998,9 @@ static bool fold_div(struct hlsl_ctx *ctx, struct hlsl_constant_value *dst, cons
+             case HLSL_TYPE_INT:
+                 if (src2->value.u[k].i == 0)
+                 {
+-                    hlsl_error(ctx, loc, VKD3D_SHADER_ERROR_HLSL_DIVISION_BY_ZERO,
++                    /* Like D3DCompiler: warn and leave the division to run
++                     * time. It may sit in a branch that folds away. */
++                    hlsl_warning(ctx, loc, VKD3D_SHADER_WARNING_HLSL_DIVISION_BY_ZERO,
+                             "Division by zero.");
+                     return false;
+                 }
+@@ -1012,7 +1014,9 @@ static bool fold_div(struct hlsl_ctx *ctx, struct hlsl_constant_value *dst, cons
+             case HLSL_TYPE_UINT:
+                 if (src2->value.u[k].u == 0)
+                 {
+-                    hlsl_error(ctx, loc, VKD3D_SHADER_ERROR_HLSL_DIVISION_BY_ZERO,
++                    /* Like D3DCompiler: warn and leave the division to run
++                     * time. It may sit in a branch that folds away. */
++                    hlsl_warning(ctx, loc, VKD3D_SHADER_WARNING_HLSL_DIVISION_BY_ZERO,
+                             "Division by zero.");
+                     return false;
+                 }
+@@ -1313,7 +1317,9 @@ static bool fold_mod(struct hlsl_ctx *ctx, struct hlsl_constant_value *dst, cons
+             case HLSL_TYPE_INT:
+                 if (src2->value.u[k].i == 0)
+                 {
+-                    hlsl_error(ctx, loc, VKD3D_SHADER_ERROR_HLSL_DIVISION_BY_ZERO, "Division by zero.");
++                    /* Like D3DCompiler: warn and leave the division to run
++                     * time. It may sit in a branch that folds away. */
++                    hlsl_warning(ctx, loc, VKD3D_SHADER_WARNING_HLSL_DIVISION_BY_ZERO, "Division by zero.");
+                     return false;
+                 }
+                 if (src1->value.u[k].i == INT_MIN && src2->value.u[k].i == -1)
+@@ -1326,7 +1332,9 @@ static bool fold_mod(struct hlsl_ctx *ctx, struct hlsl_constant_value *dst, cons
+             case HLSL_TYPE_UINT:
+                 if (src2->value.u[k].u == 0)
+                 {
+-                    hlsl_error(ctx, loc, VKD3D_SHADER_ERROR_HLSL_DIVISION_BY_ZERO, "Division by zero.");
++                    /* Like D3DCompiler: warn and leave the division to run
++                     * time. It may sit in a branch that folds away. */
++                    hlsl_warning(ctx, loc, VKD3D_SHADER_WARNING_HLSL_DIVISION_BY_ZERO, "Division by zero.");
+                     return false;
+                 }
+                 dst->u[k].u = src1->value.u[k].u % src2->value.u[k].u;
