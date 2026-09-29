@@ -28,8 +28,8 @@
 #include "effect_codegen_hlsl.cpp"
 
 #include <vkd3d_shader.h>
+#include "vkd3d_hlsl_fixups.hpp"
 
-#include <cctype>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -99,32 +99,8 @@ public:
 		const enum vkd3d_shader_target_type target_type =
 			is_sm1 ? VKD3D_SHADER_TARGET_D3D_BYTECODE : VKD3D_SHADER_TARGET_DXBC_TPF;
 
-		// codegen_hlsl marks every [loop] loop [fastopt] at shader model 4+, and
-		// vkd3d-shader aborts on that attribute (E5017, docs/upstream/vkd3d/
-		// ISSUE-fastopt.md). To D3DCompiler it means [loop] plus a faster, less
-		// thorough compile, so hand vkd3d [loop]. Only vkd3d's input changes:
-		// --hlsl output and the Windows D3DCompiler path still say [fastopt].
-		for (size_t pos = 0; (pos = hlsl.find("[fastopt]", pos)) != std::string::npos; pos += 6)
-			hlsl.replace(pos, 9, "[loop]");
-
-		// vkd3d-shader has no isnan (E5005, docs/upstream/vkd3d/ISSUE-isnan.md).
-		// Under IEEE rules NaN is the only value not equal to itself, so
-		// isnan(x) is (x != x), per component for vectors too. codegen_hlsl
-		// always writes isnan(<variable name>); anything else is left alone.
-		const auto is_name_char = [](char c) { return c == '_' || std::isalnum(static_cast<unsigned char>(c)); };
-		for (size_t pos = 0; (pos = hlsl.find("isnan(", pos)) != std::string::npos; ++pos)
-		{
-			if (pos != 0 && is_name_char(hlsl[pos - 1]))
-				continue;
-			const size_t arg = pos + 6;
-			size_t end = arg;
-			while (end < hlsl.size() && is_name_char(hlsl[end]))
-				++end;
-			if (end == arg || end >= hlsl.size() || hlsl[end] != ')')
-				continue;
-			const std::string name = hlsl.substr(arg, end - arg);
-			hlsl.replace(pos, end + 1 - pos, '(' + name + " != " + name + ')');
-		}
+		// [fastopt] and isnan, which vkd3d rejects; see vkd3d_hlsl_fixups.hpp.
+		apply_vkd3d_hlsl_fixups(hlsl);
 
 		std::vector<struct vkd3d_shader_compile_option> options;
 		if (is_sm1)

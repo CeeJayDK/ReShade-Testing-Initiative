@@ -12,6 +12,7 @@
 #include "dxbc_compile.hpp"
 
 #include <vkd3d_shader.h>
+#include "vkd3d_hlsl_fixups.hpp"
 
 #include <cstring>
 #include <vector>
@@ -53,9 +54,13 @@ namespace
 
 namespace fxstat
 {
-dxbc_compile_result compile_hlsl_to_dxbc_vkd3d(const std::string &hlsl,
+dxbc_compile_result compile_hlsl_to_dxbc_vkd3d(const std::string &source,
 	const std::string &entry_point, const std::string &profile)
 {
+	// [fastopt] and isnan, which vkd3d rejects; see cli/vkd3d_hlsl_fixups.hpp.
+	std::string hlsl = source;
+	apply_vkd3d_hlsl_fixups(hlsl);
+
 	dxbc_compile_result result;
 	result.compiler_id = "vkd3d-shader";
 
