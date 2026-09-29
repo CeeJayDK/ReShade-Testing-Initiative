@@ -24,7 +24,7 @@ itself would give.
 | tool | what it does |
 |---|---|
 | `reshadefx_cli` | crosire's own `ReShadeFXC`, unmodified. Compiles a `.fx` file and reports the exact errors ReShade would. |
-| `reshadefx_cli_fixed` | the same tool with six bug fixes applied ([docs/upstream/reshade-fxc.md](docs/upstream/reshade-fxc.md)), and `--dxbc` on Linux too. |
+| `reshadefx_cli_fixed` | the same tool with six bug fixes applied ([docs/upstream/reshade-fxc.md](docs/upstream/reshade-fxc.md)), `--dxbc` on Linux too, and `--all-entry-points` to compile every entry point from one parse ([docs/COMPILE-SPEED.md](docs/COMPILE-SPEED.md)). |
 | `reshadefx_rga` | per-stage SPIR-V instruction cost; optionally drives AMD's RGA for real GPU ISA and register data. |
 | `fxstat` | SPIR-V and DXBC instruction statistics, lane-weighted ALU and transcendental counts, optional real AMD GPU ISA via RGA (`--rga`), JSON output, baseline/diff mode. See [fxstat/README.md](fxstat/README.md). |
 | `reshadefx_coverage` | how much of a shader corpus compiles to DXBC, per shader model. |
@@ -203,12 +203,16 @@ Downloaded sources (ReShade, the SPIR-V headers that ReShade tag pins, and
 vkd3d) are cached in `.deps/`. The first full build takes a few minutes, mostly
 vkd3d; after that it is quick. Delete `.deps/` to start clean.
 
-`patches/*.patch` are applied to the ReShade checkout once. Today there is one:
-`reshade-include-names.patch` makes `#include` names behave as on Windows when
-building on Linux/macOS: `\` is a path separator (iMMERSE includes
-`".\MartysMods\mmx_global.fxh"`), and a name not found as written is matched
-ignoring letter case (OtisFX includes `"Reshade.fxh"`). ReShade assumes Windows,
-so effects are written that way.
+`patches/*.patch` are applied to the ReShade checkout once, by both build scripts:
+
+- `reshade-include-names.patch` makes `#include` names behave as on Windows
+  (it does nothing on Windows itself):
+  `\` is a path separator (iMMERSE includes `".\MartysMods\mmx_global.fxh"`), and
+  a name not found as written is matched ignoring letter case (OtisFX includes
+  `"Reshade.fxh"`). ReShade assumes Windows, so effects are written that way.
+- `reshade-token-reuse.patch` makes the front end about 14% cheaper by reusing
+  token storage instead of allocating per token. Output is unchanged; see
+  [docs/COMPILE-SPEED.md](docs/COMPILE-SPEED.md).
 
 Don't want to build anything? Every push to `main` builds and tests both
 platforms in CI — grab the latest binaries from the

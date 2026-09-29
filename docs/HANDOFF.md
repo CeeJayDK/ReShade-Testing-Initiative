@@ -145,3 +145,22 @@ writes the status file; test it on a fork of SweetFX.
 **What will bite:** tool build time on every run (cache the binaries or publish
 them as release assets), ShaderLab needs Wine + Xvfb on the runner, and a workflow
 that commits back to the repo needs write permission and must not trigger itself.
+
+---
+
+## 7. vkd3d loop unroller speed
+
+**Why deferred (2026-09-29):** `--dxbc` spends almost all of its time in
+vkd3d-shader's loop unroller, on a handful of shaders (prod80 `PS_MinMax_1x1`
+16 s, iMMERSE SMAA's blending-weight compute shader 8 s). Each unrolled
+iteration clones the loop body and runs copy propagation again, so the work grows
+much faster than the loop. The fix is a vkd3d/Wine patch, not a ReShade one.
+Details and numbers: `docs/COMPILE-SPEED.md`.
+
+**Next step:** reproduce with the SMAA entry point under callgrind, make copy
+propagation work per unrolled iteration, and check that the DXBC of every
+effect in the corpus stays byte-identical.
+
+**What will bite:** the unroller also decides *whether* a loop is unrolled
+(iteration limits, when a loop counts as bounded). Any change there changes the
+output, so it must stay out of the patch.

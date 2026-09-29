@@ -246,6 +246,136 @@ VALIDATE_NEW = ('	if (source_file == nullptr || (generate_glsl && (generate_dxbc
                 '|| (output_file == nullptr && (!generate_hlsl && !generate_glsl) && !list_entry_points_only))\n')
 
 
+# --- 7: several entry points in one run --------------------------------------
+#
+# Assembling SPIR-V or DXBC takes one -E per run, so every entry point paid for
+# preprocessing and parsing the whole effect again (52 times for iMMERSE's
+# LAUNCHPAD). -E can now be repeated, or --all-entry-points given: the effect is
+# parsed once and the entry points are assembled in parallel (-j threads). Each
+# output is byte-identical to what a single -E run writes; only the file name
+# gains the entry point: -Fo out.cso -> out.<entry point>.cso.
+
+MULTI_DECL_OLD = '	bool list_entry_points_only = false;\n'
+MULTI_DECL_NEW = ('	bool list_entry_points_only = false;\n'
+                  '	bool all_entry_points = false;\n'
+                  '	std::vector<std::string> entry_point_names;\n'
+                  '	unsigned int jobs = std::thread::hardware_concurrency();\n')
+
+MULTI_ARG_OLD = '''			else if (0 == std::strcmp(arg, "-E"))
+				entry_point_name = argv[++i];
+'''
+MULTI_ARG_NEW = '''			else if (0 == std::strcmp(arg, "-E"))
+				entry_point_names.push_back(entry_point_name = argv[++i]);
+			else if (0 == std::strcmp(arg, "-j"))
+				jobs = static_cast<unsigned int>(std::strtoul(argv[++i], nullptr, 10));
+'''
+
+MULTI_FLAG_OLD = '			if (0 == std::strcmp(arg, "--list-entry-points"))\n'
+MULTI_FLAG_NEW = ('			if (0 == std::strcmp(arg, "--all-entry-points"))\n'
+                  '				all_entry_points = true;\n'
+                  '			else if (0 == std::strcmp(arg, "--list-entry-points"))\n')
+
+MULTI_USAGE_OLD = '  -E <name>                 Optional entry point name to assemble code for that specific entry point.\n'
+MULTI_USAGE_NEW = ('  -E <name>                 Optional entry point name to assemble code for that specific entry point.\n'
+                   '                            Can be repeated. With more than one, -Fo out.cso writes out.<name>.cso.\n'
+                   '  --all-entry-points        Assemble every entry point, as if each were passed with -E.\n'
+                   '  -j <count>                Entry points assembled in parallel (default: all CPU cores).\n')
+
+MULTI_VALIDATE_OLD = '|| (generate_dxbc && entry_point_name == nullptr && !list_entry_points_only) '
+MULTI_VALIDATE_NEW = '|| (generate_dxbc && entry_point_name == nullptr && !list_entry_points_only && !all_entry_points) '
+
+MULTI_INCLUDE_OLD = '#include <algorithm>\n'
+MULTI_INCLUDE_NEW = '#include <algorithm>\n#include <atomic>\n#include <thread>\n#include <vector>\n'
+
+MULTI_BLOCK_OLD = '''	std::basic_string<char> code, assembly;
+	if (entry_point_name != nullptr)
+'''
+MULTI_BLOCK_NEW = '''	if (all_entry_points)
+	{
+		entry_point_names.clear();
+		for (const std::pair<std::string, reshadefx::shader_type> &ep : backend->module().entry_points)
+			entry_point_names.push_back(ep.first);
+	}
+
+	// Several entry points: the effect was parsed once above, now assemble them in
+	// parallel. The back ends' assemble_code_for_entry_point() is const.
+	if (all_entry_points || entry_point_names.size() > 1)
+	{
+		if (output_file == nullptr)
+		{
+			report("error: -Fo is required with more than one entry point");
+			return 1;
+		}
+
+		// out.cso -> out.<entry point>.cso
+		const auto path_for = [](const char *path, const std::string &name) {
+			const std::string p = path;
+			const size_t slash = p.find_last_of("/\\\\");
+			const size_t dot = p.find_last_of('.');
+			if (dot == std::string::npos || (slash != std::string::npos && dot < slash))
+				return p + '.' + name;
+			return p.substr(0, dot) + '.' + name + p.substr(dot);
+		};
+
+		struct result { bool ok = false; std::string code, assembly, errors; };
+		std::vector<result> results(entry_point_names.size());
+		std::atomic<size_t> next_index(0);
+		const auto work = [&]() {
+			for (size_t k; (k = next_index++) < entry_point_names.size();)
+				results[k].ok = backend->assemble_code_for_entry_point(entry_point_names[k], results[k].code, results[k].assembly, results[k].errors);
+		};
+		std::vector<std::thread> threads;
+		for (unsigned int t = 1; t < std::min<size_t>(std::max(jobs, 1u), entry_point_names.size()); ++t)
+			threads.emplace_back(work);
+		work();
+		for (std::thread &thread : threads)
+			thread.join();
+
+		std::string errors;
+		bool unknown = false, no_listing = false;
+		for (size_t k = 0; k < entry_point_names.size(); ++k)
+		{
+			const std::string &name = entry_point_names[k];
+			const result &r = results[k];
+			if (!r.ok)
+			{
+				errors += r.errors;
+				if (std::none_of(backend->module().entry_points.begin(), backend->module().entry_points.end(),
+						[&name](const std::pair<std::string, reshadefx::shader_type> &ep) { return ep.first == name; }))
+				{
+					errors += "error: no entry point named '" + name + "'\\n";
+					unknown = true;
+				}
+				else if (r.errors.empty())
+				{
+					errors += "error: entry point '" + name + "' failed to compile\\n";
+				}
+				continue;
+			}
+			std::ofstream(path_for(output_file, name), std::ios::binary).write(r.code.data(), r.code.size());
+			if (assembly_file != nullptr)
+			{
+				if (r.assembly.empty())
+					no_listing = true;
+				else
+					std::ofstream(path_for(assembly_file, name), std::ios::binary).write(r.assembly.data(), r.assembly.size());
+			}
+		}
+		if (no_listing)
+			std::cout << "warning: this back end produced no disassembly listing" << std::endl;
+		if (!errors.empty())
+		{
+			report(errors + (unknown ? list_entry_points() : std::string()));
+			return 1;
+		}
+		return 0;
+	}
+
+	std::basic_string<char> code, assembly;
+	if (entry_point_name != nullptr)
+'''
+
+
 def main():
     root = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else ".")
     path = root / "tools" / "fxc.cpp"
@@ -277,6 +407,13 @@ def main():
         (ALGO_OLD,     ALGO_NEW,     "included <algorithm>"),
         (VALIDATE_OLD, VALIDATE_NEW, "let --list-entry-points bypass the -E/-Fo requirements"),
         (OLD_FINALIZE, NEW_FINALIZE, "fixed silent/empty output and added the disassembly listing"),
+        (MULTI_DECL_OLD,     MULTI_DECL_NEW,     "added several-entry-point state"),
+        (MULTI_ARG_OLD,      MULTI_ARG_NEW,      "made -E repeatable, added -j"),
+        (MULTI_FLAG_OLD,     MULTI_FLAG_NEW,     "added --all-entry-points"),
+        (MULTI_USAGE_OLD,    MULTI_USAGE_NEW,    "documented -E repetition, --all-entry-points and -j"),
+        (MULTI_VALIDATE_OLD, MULTI_VALIDATE_NEW, "let --all-entry-points satisfy --dxbc's -E requirement"),
+        (MULTI_INCLUDE_OLD,  MULTI_INCLUDE_NEW,  "included <atomic>, <thread>, <vector>"),
+        (MULTI_BLOCK_OLD,    MULTI_BLOCK_NEW,    "assemble several entry points from one parse, in parallel"),
     ]
     for old, new, what in edits:
         if old not in text:
