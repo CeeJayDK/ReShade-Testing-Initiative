@@ -157,6 +157,12 @@ iteration clones the loop body and runs copy propagation again, so the work grow
 much faster than the loop. The fix is a vkd3d/Wine patch, not a ReShade one.
 Details and numbers: `docs/COMPILE-SPEED.md`.
 
+It is worse in performance mode, where uniforms become constants and more loops
+have known bounds: `PS_MinMax_1x1` runs for over 5 minutes (13 s without). fxstat
+compiles in performance mode by default, so `fxstat --dxbc` on prod80
+`PD80_01B_RT_Correct_Color` takes that long too. Before the `[fastopt]` rewrite
+it failed on another entry point first and never got there.
+
 **Next step:** reproduce with the SMAA entry point under callgrind, make copy
 propagation work per unrolled iteration, and check that the DXBC of every
 effect in the corpus stays byte-identical.

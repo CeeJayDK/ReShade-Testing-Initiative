@@ -152,6 +152,10 @@ Known limits:
 - vkd3d-shader has no `isnan` (`E5005`; e.g. Fubax PerfectPerspective). Report:
   `docs/upstream/vkd3d/ISSUE-isnan.md`. `patches/reshade-isnan.patch` makes this ReShade
   build emit `(x != x)` instead (NaN is the only value not equal to itself).
+- vkd3d-shader treated integer division by a constant zero as an error, even in code
+  that is folded away (legacy `DOF.fx`, `GP65CJ042DOF`). D3DCompiler only warns.
+  `build_runtime.sh` applies the repo's `patches/vkd3d/*.patch`, which make it a
+  warning. Report: `docs/upstream/vkd3d/ISSUE-divzero.md`.
 - ReShade selects an effect by its file name. If two files with the same name are on
   the search path (e.g. an original and a modified copy in another folder), both are
   loaded and both run. To compare an original with a modified copy, render the copy

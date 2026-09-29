@@ -214,6 +214,11 @@ vkd3d; after that it is quick. Delete `.deps/` to start clean.
   token storage instead of allocating per token. Output is unchanged; see
   [docs/COMPILE-SPEED.md](docs/COMPILE-SPEED.md).
 
+`patches/vkd3d/*.patch` are applied to vkd3d-shader, which only the Linux build
+uses: `fold-division-by-zero.patch` makes integer division by a constant zero a
+warning, as in D3DCompiler, instead of an error
+([docs/DXBC-ON-LINUX.md](docs/DXBC-ON-LINUX.md)).
+
 Don't want to build anything? Every push to `main` builds and tests both
 platforms in CI — grab the latest binaries from the
 [Actions tab](https://github.com/CeeJayDK/ReShade-Testing-Initiative/actions/workflows/build.yml)

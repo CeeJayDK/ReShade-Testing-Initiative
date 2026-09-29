@@ -123,13 +123,27 @@ well-defined gap, and ReShade is not doing anything exotic.
 **`[fastopt]` is handed to vkd3d as `[loop]`.** ReShade's HLSL generator marks
 every `[loop]` loop `[fastopt]` at shader model 4+, and vkd3d aborts on that
 attribute (`E5017`, `docs/upstream/vkd3d/ISSUE-fastopt.md`). To D3DCompiler it
-means `[loop]` plus a faster, less thorough compile, so the vkd3d back end
-(`cli/effect_codegen_dxbc_vkd3d.cpp`) rewrites it in the HLSL it passes on. This
+means `[loop]` plus a faster, less thorough compile, so it is rewritten in the
+HLSL passed to vkd3d (`cli/vkd3d_hlsl_fixups.hpp`, used by both the CLI back end
+and fxstat). This
 fixed 21 of the 25 effects that failed `--dxbc` in a 133-effect corpus, and
 changed nothing in the ones that already compiled. `--hlsl` output still says
-`[fastopt]`, as ReShade's does. Of the remaining four, three use `isnan`, which
-vkd3d does not have (`docs/upstream/vkd3d/ISSUE-isnan.md`), and one is a
-constant division by zero that vkd3d rejects as an error.
+`[fastopt]`, as ReShade's does.
+
+**`isnan(x)` is handed to vkd3d as `(x != x)`.** vkd3d has no `isnan`
+(`docs/upstream/vkd3d/ISSUE-isnan.md`). Under IEEE rules NaN is the only value
+not equal to itself, so the two are the same, per component for vectors too.
+Same place, same rule: only vkd3d's input changes. Fixed 3 more (Fubax
+PerfectPerspective).
+
+**Integer division by a constant zero is a warning, not an error.** vkd3d
+refused to compile legacy `DOF.fx`: while unrolling a loop it folds a guarded
+`n % cycle` with `cycle == 0` in a branch that is dead anyway, and treated that
+as an error. D3DCompiler only warns. `patches/vkd3d/fold-division-by-zero.patch`
+makes vkd3d warn and leave the division alone (report:
+`docs/upstream/vkd3d/ISSUE-divzero.md`). With these three, all 133 effects in
+the corpus compile to DXBC, and every effect that compiled before is
+byte-identical.
 
 **Optimization levels are not equivalent.** vkd3d-shader has no counterpart to
 `D3DCOMPILE_OPTIMIZATION_LEVEL*`. The `optimization_level` argument is accepted

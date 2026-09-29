@@ -21,7 +21,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .deps
-          key: deps-linux-${{ hashFiles('RESHADE_VERSION', 'tools/build-vkd3d-shader.sh', 'tools/idl2h.py') }}
+          key: deps-linux-${{ hashFiles('RESHADE_VERSION', 'tools/build-vkd3d-shader.sh', 'tools/idl2h.py', 'patches/vkd3d/*.patch') }}
 
       - name: Build
         run: ./build_reshade_testing_initiative.sh bin

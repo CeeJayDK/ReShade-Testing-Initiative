@@ -28,6 +28,7 @@
 #include "effect_codegen_hlsl.cpp"
 
 #include <vkd3d_shader.h>
+#include "vkd3d_hlsl_fixups.hpp"
 
 #include <cstring>
 #include <string>
@@ -98,13 +99,8 @@ public:
 		const enum vkd3d_shader_target_type target_type =
 			is_sm1 ? VKD3D_SHADER_TARGET_D3D_BYTECODE : VKD3D_SHADER_TARGET_DXBC_TPF;
 
-		// codegen_hlsl marks every [loop] loop [fastopt] at shader model 4+, and
-		// vkd3d-shader aborts on that attribute (E5017, docs/upstream/vkd3d/
-		// ISSUE-fastopt.md). To D3DCompiler it means [loop] plus a faster, less
-		// thorough compile, so hand vkd3d [loop]. Only vkd3d's input changes:
-		// --hlsl output and the Windows D3DCompiler path still say [fastopt].
-		for (size_t pos = 0; (pos = hlsl.find("[fastopt]", pos)) != std::string::npos; pos += 6)
-			hlsl.replace(pos, 9, "[loop]");
+		// [fastopt] and isnan, which vkd3d rejects; see vkd3d_hlsl_fixups.hpp.
+		apply_vkd3d_hlsl_fixups(hlsl);
 
 		std::vector<struct vkd3d_shader_compile_option> options;
 		if (is_sm1)

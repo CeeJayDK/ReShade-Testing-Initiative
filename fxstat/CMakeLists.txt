@@ -117,7 +117,8 @@ if(VKD3D_BUILD AND EXISTS "${VKD3D_BUILD}/libvkd3d-shader.a")
 	target_sources(fxstat_core PRIVATE src/core/dxbc_compile_vkd3d.cpp)
 	target_include_directories(fxstat_core PRIVATE
 		"${VKD3D_BUILD}/wine-src/libs/vkd3d/include"
-		"${VKD3D_BUILD}/shim")
+		"${VKD3D_BUILD}/shim"
+		"${CMAKE_CURRENT_SOURCE_DIR}/../cli")  # vkd3d_hlsl_fixups.hpp
 	target_link_libraries(fxstat_core PRIVATE "${VKD3D_BUILD}/libvkd3d-shader.a")
 	if(NOT WIN32)
 		target_link_libraries(fxstat_core PRIVATE m pthread)

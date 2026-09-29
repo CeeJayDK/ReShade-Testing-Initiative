@@ -46,6 +46,21 @@ fi
 V="$WINE_SRC/libs/vkd3d"
 [ -f "$V/libs/vkd3d-shader/hlsl.y" ] || { echo "no vkd3d tree under $V" >&2; exit 1; }
 
+# Local fixes to vkd3d (patches/vkd3d/*.patch, paths relative to the Wine tree),
+# applied once. Wine's copy follows Wine master, so a patch that stops applying
+# is reported and skipped instead of failing the build.
+PATCH_DIR="$SCRIPT_DIR/../patches/vkd3d"
+for P in "$PATCH_DIR"/*.patch; do
+	[ -f "$P" ] || continue
+	if git -C "$WINE_SRC" apply --reverse --check "$P" 2>/dev/null; then
+		continue
+	elif git -C "$WINE_SRC" apply "$P"; then
+		echo "Applied $(basename "$P")"
+	else
+		echo "WARNING: $(basename "$P") does not apply to this vkd3d, building without it" >&2
+	fi
+done
+
 # upstream's vkd3d_windows.h is the one piece Wine drops entirely. Any upstream
 # checkout has it and it changes very rarely.
 if [ -z "$VKD3D_WINDOWS_H_SRC" ]; then
@@ -215,6 +230,8 @@ for p in "${pids[@]}"; do wait "$p" || fail=1; done
 
 rm -f libvkd3d-shader.a
 ar rcs libvkd3d-shader.a obj/*.o
+# The main build script rebuilds when patches/vkd3d changes.
+cat "$PATCH_DIR"/*.patch 2>/dev/null | cksum > patches.cksum
 
 echo
 echo "built: $OUT/libvkd3d-shader.a"
