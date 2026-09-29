@@ -1,0 +1,134 @@
+diff --git a/source/effect_lexer.cpp b/source/effect_lexer.cpp
+index 7d6069e..6bc16d0 100644
+--- a/source/effect_lexer.cpp
++++ b/source/effect_lexer.cpp
+@@ -567,10 +567,16 @@ std::string reshadefx::token::id_to_name(tokenid id)
+ }
+ 
+ reshadefx::token reshadefx::lexer::lex()
++{
++	token tok;
++	lex(tok);
++	return tok;
++}
++
++void reshadefx::lexer::lex(token &tok)
+ {
+ 	bool is_at_line_begin = _cur_location.column <= 1;
+ 
+-	token tok;
+ next_token:
+ 	// Reset token data
+ 	tok.location = _cur_location;
+@@ -586,14 +592,14 @@ next_token:
+ 	{
+ 	case 0xFF: // EOF
+ 		tok.id = tokenid::end_of_file;
+-		return tok;
++		return;
+ 	case SPACE:
+ 		skip_space();
+ 		if (_ignore_whitespace || is_at_line_begin || *_cur == '\n')
+ 			goto next_token;
+ 		tok.id = tokenid::space;
+ 		tok.length = input_offset() - tok.offset;
+-		return tok;
++		return;
+ 	case '\n':
+ 		_cur++;
+ 		_cur_location.line++;
+@@ -602,7 +608,7 @@ next_token:
+ 		if (_ignore_whitespace)
+ 			goto next_token;
+ 		tok.id = tokenid::end_of_line;
+-		return tok;
++		return;
+ 	case DIGIT:
+ 		parse_numeric_literal(tok);
+ 		break;
+@@ -707,7 +713,7 @@ next_token:
+ 				goto next_token;
+ 			tok.id = tokenid::single_line_comment;
+ 			tok.length = input_offset() - tok.offset;
+-			return tok;
++			return;
+ 		}
+ 		else if (_cur[1] == '*')
+ 		{
+@@ -729,7 +735,7 @@ next_token:
+ 				goto next_token;
+ 			tok.id = tokenid::multi_line_comment;
+ 			tok.length = input_offset() - tok.offset;
+-			return tok;
++			return;
+ 		}
+ 		else if (_cur[1] == '=')
+ 			tok.id = tokenid::slash_equal,
+@@ -800,7 +806,7 @@ next_token:
+ 				goto next_token;
+ 			tok.id = tokenid::space;
+ 			tok.length = input_offset() - tok.offset;
+-			return tok;
++			return;
+ 		}
+ 		tok.id = tokenid::backslash;
+ 		break;
+@@ -839,8 +845,6 @@ next_token:
+ 	}
+ 
+ 	skip(tok.length);
+-
+-	return tok;
+ }
+ 
+ void reshadefx::lexer::skip(size_t length)
+diff --git a/source/effect_lexer.hpp b/source/effect_lexer.hpp
+index 20686c3..45b9415 100644
+--- a/source/effect_lexer.hpp
++++ b/source/effect_lexer.hpp
+@@ -70,6 +70,11 @@ namespace reshadefx
+ 		/// </summary>
+ 		/// <returns>Next token from the input string.</returns>
+ 		token lex();
++		/// <summary>
++		/// Performs lexical analysis into an existing token. Reusing a token reuses its string
++		/// storage, which saves an allocation per token for the source file name alone.
++		/// </summary>
++		void lex(token &tok);
+ 
+ 		/// <summary>
+ 		/// Advances to the next token that is not whitespace.
+diff --git a/source/effect_parser_exp.cpp b/source/effect_parser_exp.cpp
+index 333c589..17b9ac0 100644
+--- a/source/effect_parser_exp.cpp
++++ b/source/effect_parser_exp.cpp
+@@ -54,8 +54,8 @@ void reshadefx::parser::restore()
+ 
+ void reshadefx::parser::consume()
+ {
+-	_token = std::move(_token_next);
+-	_token_next = _lexer->lex();
++	std::swap(_token, _token_next);
++	_lexer->lex(_token_next);
+ }
+ void reshadefx::parser::consume_until(tokenid tokid)
+ {
+diff --git a/source/effect_preprocessor.cpp b/source/effect_preprocessor.cpp
+index 96bcca7..fb44ded 100644
+--- a/source/effect_preprocessor.cpp
++++ b/source/effect_preprocessor.cpp
+@@ -307,11 +307,11 @@ void reshadefx::preprocessor::consume()
+ 	}
+ 
+ 	// Set current token
+-	_token = std::move(input.next_token);
+-	_current_token_raw_data = input.lexer->input_string().substr(_token.offset, _token.length);
++	std::swap(_token, input.next_token);
++	_current_token_raw_data.assign(input.lexer->input_string(), _token.offset, _token.length);
+ 
+ 	// Get the next token
+-	input.next_token = input.lexer->lex();
++	input.lexer->lex(input.next_token);
+ 
+ 	// Verify string literals (since the lexer cannot throw errors itself)
+ 	if (_token == tokenid::string_literal && _current_token_raw_data.back() != '\"')

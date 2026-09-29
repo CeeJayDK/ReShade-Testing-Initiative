@@ -7,7 +7,8 @@
 #   reshadefx_cli        crosire's tools/fxc.cpp, unmodified. Equivalent to the
 #                        ReShadeFXC that ships with ReShade. No --dxbc here
 #                        (upstream's DXBC backend needs Windows' D3DCompiler).
-#   reshadefx_cli_fixed  the same, with tools/fxc-fix.py applied (six fixes, see
+#   reshadefx_cli_fixed  the same, with tools/fxc-fix.py applied (six fixes and
+#                        --all-entry-points, see
 #                        docs/upstream/reshade-fxc.md) and a working --dxbc on
 #                        top of vkd3d-shader.
 #   reshadefx_rga        per-stage SPIR-V instruction cost, optional RGA driver.

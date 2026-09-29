@@ -27,13 +27,14 @@ fxstat/                       instruction statistics, as a library + CLI
 tools/                        shared build and analysis tooling
   build-vkd3d-shader.sh         builds libvkd3d-shader.a natively on Linux
   idl2h.py                      extracts the C parts of a Windows .idl
-  fxc-fix.py                    six fixes to crosire's tools/fxc.cpp
+  fxc-fix.py                    six fixes to crosire's tools/fxc.cpp, plus --all-entry-points
   audit_paths.py                which code path each effect takes per API
   mingw-w64-toolchain.cmake     for cross-building fxstat for Windows
 
 docs/
   CHECKLIST.md                  what is left to do, in order
   AUDIT.md                      renderer-path audit results
+  COMPILE-SPEED.md              where compile time goes, what was sped up, what is left
   DXBC-ON-LINUX.md              how the vkd3d DXBC route works and what it costs
   HANDOFF.md                    deferred work: WASM, preset sweep, RGA, bandwidth
   LAYOUT.md                     this file
