@@ -120,6 +120,17 @@ static into its resource and numeric halves. Vertex shaders, which do not sample
 compile fine. This is worth reporting to the vkd3d project — it is a small,
 well-defined gap, and ReShade is not doing anything exotic.
 
+**`[fastopt]` is handed to vkd3d as `[loop]`.** ReShade's HLSL generator marks
+every `[loop]` loop `[fastopt]` at shader model 4+, and vkd3d aborts on that
+attribute (`E5017`, `docs/upstream/vkd3d/ISSUE-fastopt.md`). To D3DCompiler it
+means `[loop]` plus a faster, less thorough compile, so the vkd3d back end
+(`cli/effect_codegen_dxbc_vkd3d.cpp`) rewrites it in the HLSL it passes on. This
+fixed 21 of the 25 effects that failed `--dxbc` in a 133-effect corpus, and
+changed nothing in the ones that already compiled. `--hlsl` output still says
+`[fastopt]`, as ReShade's does. Of the remaining four, three use `isnan`, which
+vkd3d does not have (`docs/upstream/vkd3d/ISSUE-isnan.md`), and one is a
+constant division by zero that vkd3d rejects as an error.
+
 **Optimization levels are not equivalent.** vkd3d-shader has no counterpart to
 `D3DCOMPILE_OPTIMIZATION_LEVEL*`. The `optimization_level` argument is accepted
 for signature compatibility and only honours `#pragma reshade skipoptimization`.

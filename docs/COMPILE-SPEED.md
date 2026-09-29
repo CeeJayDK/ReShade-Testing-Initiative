@@ -71,9 +71,9 @@ ReShade's loading time is dominated by D3DCompiler (or the driver), not by this
 front end. After the patch the profile is flat: string handling, macro hash
 lookups and memcpy, with no single hot spot left.
 
-Not done here: the patch is applied on Linux/macOS only. The Windows `.bat` does
-not apply `patches/` (the other patch there is Linux-specific), so the Windows
-build has option 1 but not this.
+Both build scripts apply it. The Windows `.bat` applies `patches/` with
+`git apply --ignore-whitespace`, because with `core.autocrlf` the patch or the
+ReShade checkout can have CRLF line endings.
 
 ## Left for later
 
@@ -91,9 +91,9 @@ benchmark below can check. Harder than the two changes above, and a patch to
 upstream vkd3d.
 
 Separately: vkd3d rejects `[fastopt]`, which ReShade emits for `[loop]` at shader
-model 4+ (for example prod80 `PS_MinMax_1`). ShaderLab's ReShade build patches
-around it (`shaderlab/patches/reshade-loop-attribute.patch`); `reshadefx_cli_fixed`
-doesn't. Reported upstream: `docs/upstream/vkd3d/ISSUE-fastopt.md`.
+model 4+. The vkd3d back end now passes it on as `[loop]`; see
+`docs/DXBC-ON-LINUX.md`. The DXBC total above (50 s) was measured before that;
+with 21 more effects compiling it is 54 s.
 
 ## How it was checked
 

@@ -203,9 +203,10 @@ Downloaded sources (ReShade, the SPIR-V headers that ReShade tag pins, and
 vkd3d) are cached in `.deps/`. The first full build takes a few minutes, mostly
 vkd3d; after that it is quick. Delete `.deps/` to start clean.
 
-`patches/*.patch` are applied to the ReShade checkout once (Linux/macOS build):
+`patches/*.patch` are applied to the ReShade checkout once, by both build scripts:
 
-- `reshade-include-names.patch` makes `#include` names behave as on Windows:
+- `reshade-include-names.patch` makes `#include` names behave as on Windows
+  (it does nothing on Windows itself):
   `\` is a path separator (iMMERSE includes `".\MartysMods\mmx_global.fxh"`), and
   a name not found as written is matched ignoring letter case (OtisFX includes
   `"Reshade.fxh"`). ReShade assumes Windows, so effects are written that way.

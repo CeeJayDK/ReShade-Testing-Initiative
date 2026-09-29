@@ -107,6 +107,18 @@ if not exist "%R%\source\effect_parser.hpp" (
 	if exist "%R%" rmdir /s /q "%R%"
 	git -c advice.detachedHead=false clone --quiet --depth 1 --branch %RESHADE_REF% https://github.com/crosire/reshade.git "%R%" || exit /b 1
 )
+REM Local patches to the reshade checkout (patches\*.patch), applied once, as in
+REM the Linux build. reshade-include-names.patch only acts off Windows;
+REM reshade-token-reuse.patch speeds up the front end without changing output.
+REM --ignore-whitespace because with core.autocrlf the patch or the checkout may
+REM have CRLF line endings.
+for %%P in ("%SCRIPT_DIR%patches\*.patch") do (
+	git -C "%R%" apply --ignore-whitespace --reverse --check "%%~fP" >nul 2>nul
+	if errorlevel 1 (
+		echo Applying %%~nxP ...
+		git -C "%R%" apply --ignore-whitespace "%%~fP" || exit /b 1
+	)
+)
 if not exist "%R%\deps\spirv\include\spirv\unified1\spirv.hpp" (
 	echo Fetching SPIR-V headers, the commit reshade %RESHADE_REF% pins ...
 	git -C "%R%" submodule update --quiet --init --depth 1 deps/spirv || exit /b 1
