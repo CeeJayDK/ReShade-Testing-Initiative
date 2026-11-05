@@ -23,8 +23,9 @@ inline void apply_vkd3d_hlsl_fixups(std::string &hlsl)
 	for (size_t pos = 0; (pos = hlsl.find("[fastopt]", pos)) != std::string::npos; pos += 6)
 		hlsl.replace(pos, 9, "[loop]");
 
-	// codegen_hlsl always calls these intrinsics on a plain variable name:
-	// <function>(<name>). Rewrite each such call; anything else is left alone.
+	// codegen_hlsl calls these intrinsics on one operand: a variable name, or a
+	// cast of one such as ((uint)x), neither with side effects. Rewrite each
+	// call with a single balanced argument; anything else is left alone.
 	const auto is_name_char = [](char c) { return c == '_' || std::isalnum(static_cast<unsigned char>(c)); };
 	const auto rewrite_calls = [&](const std::string &function, auto replacement) {
 		const std::string call = function + '(';
@@ -34,8 +35,19 @@ inline void apply_vkd3d_hlsl_fixups(std::string &hlsl)
 				continue;
 			const size_t arg = pos + call.size();
 			size_t end = arg;
-			while (end < hlsl.size() && is_name_char(hlsl[end]))
-				++end;
+			int depth = 0;
+			for (; end < hlsl.size(); ++end)
+			{
+				const char c = hlsl[end];
+				if (c == '(')
+					++depth;
+				else if (c == ')' && depth-- == 0)
+					break;
+				else if (c == ',' && depth == 0)
+					break;
+				else if (c == ';' || c == '{' || c == '}')
+					break;
+			}
 			if (end == arg || end >= hlsl.size() || hlsl[end] != ')')
 				continue;
 			const std::string text = replacement(hlsl.substr(arg, end - arg));

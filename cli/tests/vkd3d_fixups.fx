@@ -24,7 +24,9 @@ float4 reverse(float2 p)
 {
 	uint u = uint(p.x);
 	uint3 w = uint3(p.xyx);
-	return float4(float(reversebits(u) >> 28), float3(reversebits(w) >> 31));
+	int i = int(p.y);
+	// ReShade passes a cast here: reversebits(((uint)i))
+	return float4(float(reversebits(u) >> 28) + float(reversebits(uint(i)) >> 30), float3(reversebits(w) >> 31));
 }
 
 float4 PS_Classify(float4 pos : SV_Position) : SV_Target { return classify(pos.xy); }
