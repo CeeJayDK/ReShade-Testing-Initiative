@@ -1,0 +1,45 @@
+diff --git a/source/effect_codegen_hlsl.cpp b/source/effect_codegen_hlsl.cpp
+index 1086288..98fb4b2 100644
+--- a/source/effect_codegen_hlsl.cpp
++++ b/source/effect_codegen_hlsl.cpp
+@@ -217,6 +217,13 @@ protected:
+ 					IMPLEMENT_INTRINSIC_FALLBACK_FIRSTBITHIGH(2) "\n"
+ 					IMPLEMENT_INTRINSIC_FALLBACK_FIRSTBITHIGH(3) "\n"
+ 					IMPLEMENT_INTRINSIC_FALLBACK_FIRSTBITHIGH(4) "\n";
++			// RTI: vkd3d-shader has no reversebits, so its fallback is used at SM 5 too.
++			else if (_uses_bitwise_intrinsics)
++				preamble +=
++					IMPLEMENT_INTRINSIC_FALLBACK_REVERSEBITS(1) "\n"
++					IMPLEMENT_INTRINSIC_FALLBACK_REVERSEBITS(2) "\n"
++					IMPLEMENT_INTRINSIC_FALLBACK_REVERSEBITS(3) "\n"
++					IMPLEMENT_INTRINSIC_FALLBACK_REVERSEBITS(4) "\n";
+ 		}
+ 		else
+ 		{
+diff --git a/source/effect_symbol_table_intrinsics.inl b/source/effect_symbol_table_intrinsics.inl
+index 2ba9bf8..7d17472 100644
+--- a/source/effect_symbol_table_intrinsics.inl
++++ b/source/effect_symbol_table_intrinsics.inl
+@@ -616,9 +616,8 @@ IMPLEMENT_INTRINSIC_GLSL(reversebits, 0, {
+ 	})
+ IMPLEMENT_INTRINSIC_HLSL(reversebits, 0, {
+ 	_uses_bitwise_intrinsics = true;
+-	if (_shader_model < 50)
+-		code += "__";
+-	code += "reversebits(" + id_to_name(args[0].base) + ')';
++	// RTI: vkd3d-shader has no reversebits, so use the fallback at every shader model.
++	code += "__reversebits(" + id_to_name(args[0].base) + ')';
+ 	})
+ IMPLEMENT_INTRINSIC_SPIRV(reversebits, 0, {
+ 	return
+@@ -1851,7 +1850,9 @@ IMPLEMENT_INTRINSIC_GLSL(isinf, 0, {
+ 	code += "isinf(" + id_to_name(args[0].base) + ')';
+ 	})
+ IMPLEMENT_INTRINSIC_HLSL(isinf, 0, {
+-	code += "isinf(" + id_to_name(args[0].base) + ')';
++	// RTI: vkd3d-shader compiles isinf only in the entry point at SM 4+, and not at SM 3.
++	// Only +-infinity is larger in magnitude than the largest finite float; NaN compares false.
++	code += "(abs(" + id_to_name(args[0].base) + ") > 3.40282347e+38)";
+ 	})
+ IMPLEMENT_INTRINSIC_SPIRV(isinf, 0, {
+ 	return

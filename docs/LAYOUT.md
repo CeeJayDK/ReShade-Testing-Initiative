@@ -12,8 +12,9 @@ rga/                          reshadefx_rga
 
 cli/                          sources for reshadefx_cli_fixed and reshadefx_coverage
   effect_codegen_dxbc_vkd3d.cpp   Linux drop-in for crosire's D3DCompiler-based one
-  vkd3d_hlsl_fixups.hpp           [fastopt] and isnan rewrites for vkd3d, shared with fxstat
+  vkd3d_hlsl_fixups.hpp           [fastopt], isnan, isinf and reversebits rewrites for vkd3d, shared with fxstat
   coverage.cpp                    corpus coverage measurement
+  tests/vkd3d_fixups.fx           one effect using every rewritten construct (CI)
 
 fxstat/                       instruction statistics, as a library + CLI
   include/fxstat/fxstat.hpp     the whole public API
