@@ -99,7 +99,7 @@ public:
 		const enum vkd3d_shader_target_type target_type =
 			is_sm1 ? VKD3D_SHADER_TARGET_D3D_BYTECODE : VKD3D_SHADER_TARGET_DXBC_TPF;
 
-		// [fastopt] and isnan, which vkd3d rejects; see vkd3d_hlsl_fixups.hpp.
+		// [fastopt], isnan, isinf and reversebits, which vkd3d rejects; see vkd3d_hlsl_fixups.hpp.
 		apply_vkd3d_hlsl_fixups(hlsl);
 
 		std::vector<struct vkd3d_shader_compile_option> options;

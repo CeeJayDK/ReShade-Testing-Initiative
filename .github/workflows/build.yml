@@ -35,6 +35,9 @@ jobs:
           ./bin/reshadefx_cli --version
           ./bin/reshadefx_cli --hlsl $I -Fo "$RUNNER_TEMP/out.hlsl" "$FX"
           ./bin/reshadefx_cli_fixed --dxbc --shader-model 50 --list-entry-points $I "$FX"
+          # constructs vkd3d rejects, rewritten by cli/vkd3d_hlsl_fixups.hpp
+          ./bin/reshadefx_cli_fixed --dxbc --shader-model 50 --all-entry-points -Fo "$RUNNER_TEMP/fixups.cso" cli/tests/vkd3d_fixups.fx
+          ./bin/reshadefx_cli_fixed --dxbc --shader-model 40 --all-entry-points -Fo "$RUNNER_TEMP/fixups.cso" cli/tests/vkd3d_fixups.fx
           ./bin/reshadefx_rga --optimize $I "$FX" | tee "$RUNNER_TEMP/rga.txt"
           grep -q "before optimization:" "$RUNNER_TEMP/rga.txt"   # fails if built without SPIRV-Tools
           ./bin/fxstat $I "$FX"
@@ -92,6 +95,7 @@ jobs:
           Run .\bin\reshadefx_cli.exe --version
           Run .\bin\reshadefx_cli.exe --hlsl -I $I -Fo "$env:RUNNER_TEMP\out.hlsl" $FX
           Run .\bin\reshadefx_cli_fixed.exe --dxbc --shader-model 50 --list-entry-points -I $I $FX
+          Run .\bin\reshadefx_cli_fixed.exe --dxbc --shader-model 50 --all-entry-points -Fo "$env:RUNNER_TEMP\fixups.cso" cli\tests\vkd3d_fixups.fx
           $rga = & .\bin\reshadefx_rga.exe --optimize -I $I $FX; $rga
           if ($LASTEXITCODE -ne 0 -or -not ($rga -match 'before optimization:')) {
             Write-Host "::error::reshadefx_rga.exe exited with $LASTEXITCODE or printed no optimization counts"

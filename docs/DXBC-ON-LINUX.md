@@ -145,6 +145,20 @@ makes vkd3d warn and leave the division alone (report:
 the corpus compile to DXBC, and every effect that compiled before is
 byte-identical.
 
+**`isinf(x)` is handed to vkd3d as `(abs(x) > 3.40282347e+38)`.** vkd3d lowers
+`isinf` only in the entry point, so in any function it calls (where ReShade
+effects usually put it) it aborts with `E5017`, and at shader model 3 it fails
+everywhere (`docs/upstream/vkd3d/ISSUE-isinf.md`). Only plus or minus infinity
+is larger in magnitude than the largest finite float, and NaN compares false,
+so this is `isinf` for every value.
+
+**`reversebits(x)` is handed to vkd3d as a call to a bit-swap helper.** vkd3d
+has no `reversebits` (`docs/upstream/vkd3d/ISSUE-reversebits.md`). The helper,
+defined ahead of the shader, is the parallel swap ReShade itself uses below
+shader model 5, so instruction counts for such shaders are a little higher
+than D3DCompiler's single `bfrev`. `cli/tests/vkd3d_fixups.fx` exercises every
+rewrite and runs in CI.
+
 **Optimization levels are not equivalent.** vkd3d-shader has no counterpart to
 `D3DCOMPILE_OPTIMIZATION_LEVEL*`. The `optimization_level` argument is accepted
 for signature compatibility and only honours `#pragma reshade skipoptimization`.

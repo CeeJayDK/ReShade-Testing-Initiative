@@ -152,6 +152,10 @@ Known limits:
 - vkd3d-shader has no `isnan` (`E5005`; e.g. Fubax PerfectPerspective). Report:
   `docs/upstream/vkd3d/ISSUE-isnan.md`. `patches/reshade-isnan.patch` makes this ReShade
   build emit `(x != x)` instead (NaN is the only value not equal to itself).
+- vkd3d-shader cannot compile `isinf` outside the entry point, nor at all at shader
+  model 3 (`E5017`), and has no `reversebits`. Reports: `docs/upstream/vkd3d/ISSUE-isinf.md`,
+  `ISSUE-reversebits.md`. `patches/reshade-vkd3d-bits.patch` makes this ReShade build emit
+  `(abs(x) > 3.40282347e+38)` for `isinf` and use its own `reversebits` fallback.
 - vkd3d-shader treated integer division by a constant zero as an error, even in code
   that is folded away (legacy `DOF.fx`, `GP65CJ042DOF`). D3DCompiler only warns.
   `build_runtime.sh` applies the repo's `patches/vkd3d/*.patch`, which make it a
