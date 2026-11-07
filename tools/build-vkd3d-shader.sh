@@ -50,6 +50,11 @@ V="$WINE_SRC/libs/vkd3d"
 # applied once. Wine's copy follows Wine master, so a patch that stops applying
 # is reported and skipped instead of failing the build.
 PATCH_DIR="$SCRIPT_DIR/../patches/vkd3d"
+# Our own clone starts clean each time, so an edited or deleted patch does not
+# leave its old version behind. A WINE_SRC you passed in is never reset.
+if [ "$WINE_SRC" = "$OUT/wine-src" ]; then
+	git -C "$WINE_SRC" checkout -q -- libs/vkd3d
+fi
 for P in "$PATCH_DIR"/*.patch; do
 	[ -f "$P" ] || continue
 	if git -C "$WINE_SRC" apply --reverse --check "$P" 2>/dev/null; then

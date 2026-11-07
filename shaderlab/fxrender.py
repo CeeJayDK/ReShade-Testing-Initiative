@@ -167,15 +167,6 @@ def image_stats(inp: Path, out: Path):
             "changed_pixels_pct": round(float((d.max(2) > 0).mean() * 100), 3)}
 
 
-def write_diff(inp: Path, out: Path, dst: Path, gain=8):
-    from PIL import Image
-    import numpy as np
-    a = np.asarray(Image.open(inp).convert("RGB")).astype(np.float32)
-    b = np.asarray(Image.open(out).convert("RGB")).astype(np.float32)
-    d = np.clip(128 + (b - a) * gain, 0, 255).astype(np.uint8)
-    Image.fromarray(d).save(dst)
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("shader", type=Path)
@@ -278,10 +269,12 @@ def main():
             result["image"] = st
             if ok and st.get("max_abs_diff") == 0:
                 result["warning"] = "output is identical to input - effect had no visible effect (or was not applied)"
+        # imgcompare needs numpy, which is optional here; the script's folder is on sys.path.
         if args.diff and st and "size" in st:
-            write_diff(args.input, out, args.diff); result["diff"] = str(args.diff.resolve())
+            import imgcompare
+            imgcompare.write_diff(imgcompare.load(args.input)[0], imgcompare.load(out)[0], args.diff)
+            result["diff"] = str(args.diff.resolve())
         if ok and args.reference:
-            sys.path.insert(0, str(HERE))
             import imgcompare
             try:
                 result["reference"] = {"image": str(args.reference.resolve()), **imgcompare.compare(args.reference, out)}

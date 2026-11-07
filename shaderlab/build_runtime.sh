@@ -64,12 +64,13 @@ if [ ! -d "$SRC/wine/.git" ]; then
 	git clone -q --depth 1 --filter=blob:none --sparse https://github.com/wine-mirror/wine.git "$SRC/wine"
 	git -C "$SRC/wine" sparse-checkout set libs/vkd3d include/wine
 fi
-git -C "$SRC/wine" fetch -q --depth 1 origin "$WINE_REF" && git -C "$SRC/wine" checkout -q FETCH_HEAD
+# -f: start from a clean tree, so an edited or deleted patch leaves nothing behind.
+git -C "$SRC/wine" fetch -q --depth 1 origin "$WINE_REF" && git -C "$SRC/wine" checkout -q -f FETCH_HEAD
 # The repo's vkd3d fixes (patches/vkd3d), the same ones the native tools' vkd3d
 # gets: e.g. integer division by a constant zero is a warning, as in D3DCompiler.
 for P in "$HERE"/../patches/vkd3d/*.patch; do
 	[ -f "$P" ] || continue
-	git -C "$SRC/wine" apply --reverse --check "$P" 2>/dev/null || git -C "$SRC/wine" apply "$P"
+	git -C "$SRC/wine" apply "$P"
 done
 
 # ---------------------------------------------------------------------------
