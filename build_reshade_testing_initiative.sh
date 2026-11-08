@@ -4,19 +4,17 @@
 # Builds the tools from crosire/reshade's own compiler source, pinned to the
 # tag in RESHADE_VERSION:
 #
-#   reshadefx_cli        crosire's tools/fxc.cpp, unmodified. Equivalent to the
-#                        ReShadeFXC that ships with ReShade. No --dxbc here
-#                        (upstream's DXBC backend needs Windows' D3DCompiler).
-#   reshadefx_cli_fixed  the same, with tools/fxc-fix.py applied (six fixes and
-#                        --all-entry-points, see
+#   reshadefx_cli_fixed  crosire's tools/fxc.cpp with tools/fxc-fix.py applied
+#                        (six fixes and --all-entry-points, see
 #                        docs/upstream/reshade-fxc.md) and a working --dxbc on
-#                        top of vkd3d-shader.
+#                        top of vkd3d-shader. Upstream fxc.cpp lags the runtime's
+#                        compiler setup, so it is not built.
 #   reshadefx_rga        per-stage SPIR-V instruction cost, optional RGA driver.
 #   fxstat               SPIR-V + DXBC instruction statistics, baseline/diff.
 #   reshadefx_coverage   how much of a shader corpus the vkd3d DXBC path compiles.
 #
-# usage: ./build_reshade_testing_initiative.sh [output_dir] [--cli] [--cli-fixed]
-#                                              [--rga] [--fxstat] [--coverage]
+# usage: ./build_reshade_testing_initiative.sh [output_dir] [--cli-fixed] [--rga]
+#                                              [--fxstat] [--coverage]
 #
 # No tool flags = build all of them. Output defaults to ./bin.
 #
@@ -35,23 +33,22 @@ RESHADE_REF="$(tr -d '[:space:]' < "$SCRIPT_DIR/RESHADE_VERSION")"
 DEPS_DIR="${DEPS_DIR:-$SCRIPT_DIR/.deps}"
 
 OUT_DIR=""
-WANT_CLI=0 WANT_CLI_FIXED=0 WANT_RGA=0 WANT_FXSTAT=0 WANT_COVERAGE=0
+WANT_CLI_FIXED=0 WANT_RGA=0 WANT_FXSTAT=0 WANT_COVERAGE=0
 ANY_SELECTED=0
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--cli)       WANT_CLI=1;       ANY_SELECTED=1 ;;
 		--cli-fixed) WANT_CLI_FIXED=1; ANY_SELECTED=1 ;;
 		--rga)       WANT_RGA=1;       ANY_SELECTED=1 ;;
 		--fxstat)    WANT_FXSTAT=1;    ANY_SELECTED=1 ;;
 		--coverage)  WANT_COVERAGE=1;  ANY_SELECTED=1 ;;
-		-h|--help)   sed -n '2,30p' "$0"; exit 0 ;;
+		-h|--help)   sed -n '2,28p' "$0"; exit 0 ;;
 		-*)          echo "unknown option: $1" >&2; exit 1 ;;
 		*)           OUT_DIR="$1" ;;
 	esac
 	shift
 done
 if [ "$ANY_SELECTED" -eq 0 ]; then
-	WANT_CLI=1 WANT_CLI_FIXED=1 WANT_RGA=1 WANT_FXSTAT=1 WANT_COVERAGE=1
+	WANT_CLI_FIXED=1 WANT_RGA=1 WANT_FXSTAT=1 WANT_COVERAGE=1
 fi
 NEED_VKD3D=$(( WANT_CLI_FIXED | WANT_COVERAGE | WANT_FXSTAT ))
 
@@ -67,7 +64,7 @@ if [ -f /usr/include/spirv-tools/optimizer.hpp ] || [ -n "${SPIRV_TOOLS_INCLUDE_
 fi
 if [ "$WANT_FXSTAT" -eq 1 ] && [ "$HAVE_SPIRV_TOOLS" -eq 0 ]; then
 	echo "ERROR: fxstat needs SPIRV-Tools (Debian/Ubuntu: apt-get install spirv-tools)." >&2
-	echo "       To build without it, pick tools explicitly, e.g. --cli --cli-fixed --rga --coverage" >&2
+	echo "       To build without it, pick tools explicitly, e.g. --cli-fixed --rga --coverage" >&2
 	exit 1
 fi
 if [ "$WANT_FXSTAT" -eq 1 ]; then
@@ -150,25 +147,6 @@ SIZE_FLAGS=(-Os -fno-exceptions -ffunction-sections -fdata-sections -s -Wl,--gc-
 VKD3D_FLAGS=(-O2 -s -w)
 
 BUILT=()
-
-# --- reshadefx_cli (upstream, unmodified) ----------------------------------
-
-if [ "$WANT_CLI" -eq 1 ]; then
-	echo "Building reshadefx_cli ..."
-	# Upstream's DXBC backend needs D3DCompiler; stub it so the tool links and
-	# --dxbc simply reports it is unavailable.
-	cat > "$WORK_DIR/dxbc_stub.cpp" << 'EOF'
-#include "effect_codegen.hpp"
-reshadefx::codegen *reshadefx::create_codegen_dxbc(unsigned int, bool, bool, int)
-{
-	return nullptr;
-}
-EOF
-	g++ -std=c++17 "${SIZE_FLAGS[@]}" "${INCLUDES[@]}" "${FX_SRC[@]}" "${CODEGEN_SRC[@]}" \
-		"$R/tools/fxc.cpp" "$WORK_DIR/dxbc_stub.cpp" \
-		-o "$OUT_DIR/reshadefx_cli"
-	BUILT+=(reshadefx_cli)
-fi
 
 # --- reshadefx_cli_fixed (fxc-fix.py + vkd3d --dxbc) -----------------------
 

@@ -5,11 +5,11 @@ REM
 REM Builds the tools from crosire/reshade's own compiler source, pinned to the
 REM tag in RESHADE_VERSION:
 REM
-REM   reshadefx_cli.exe        crosire's tools\fxc.cpp, unmodified. Equivalent to
-REM                            the ReShadeFXC that ships with ReShade, including
-REM                            --dxbc via the real D3DCompiler.
-REM   reshadefx_cli_fixed.exe  the same, with tools\fxc-fix.py applied (six fixes,
-REM                            see docs\upstream\reshade-fxc.md).
+REM   reshadefx_cli_fixed.exe  crosire's tools\fxc.cpp with tools\fxc-fix.py applied
+REM                            (six fixes and --all-entry-points, see
+REM                            docs\upstream\reshade-fxc.md), --dxbc via the real
+REM                            D3DCompiler. Upstream fxc.cpp lags the runtime's
+REM                            compiler setup, so it is not built.
 REM   reshadefx_rga.exe        per-stage SPIR-V instruction cost, optional RGA driver.
 REM   fxstat.exe               SPIR-V + DXBC instruction statistics, baseline/diff.
 REM   reshadefx_coverage.exe   how much of a shader corpus compiles to DXBC.
@@ -17,8 +17,8 @@ REM
 REM All DXBC here comes from d3dcompiler_47.dll, which ships with Windows.
 REM vkd3d is not used on Windows.
 REM
-REM Usage: build_reshade_testing_initiative.bat [output_dir] [--cli] [--cli-fixed]
-REM                                             [--rga] [--fxstat] [--coverage]
+REM Usage: build_reshade_testing_initiative.bat [output_dir] [--cli-fixed] [--rga]
+REM                                             [--fxstat] [--coverage]
 REM
 REM No tool flags = build all of them. Output defaults to .\bin.
 REM
@@ -41,7 +41,6 @@ for /f "tokens=* delims= " %%a in ("%RESHADE_REF%") do set "RESHADE_REF=%%a"
 if not defined DEPS_DIR set "DEPS_DIR=%SCRIPT_DIR%.deps"
 
 set "OUT_DIR="
-set "WANT_CLI=0"
 set "WANT_CLI_FIXED=0"
 set "WANT_RGA=0"
 set "WANT_FXSTAT=0"
@@ -50,7 +49,6 @@ set "ANY_SELECTED=0"
 
 :parse_args
 if "%~1"=="" goto args_done
-if /I "%~1"=="--cli"       ( set "WANT_CLI=1"       & set "ANY_SELECTED=1" & shift & goto parse_args )
 if /I "%~1"=="--cli-fixed" ( set "WANT_CLI_FIXED=1" & set "ANY_SELECTED=1" & shift & goto parse_args )
 if /I "%~1"=="--rga"       ( set "WANT_RGA=1"       & set "ANY_SELECTED=1" & shift & goto parse_args )
 if /I "%~1"=="--fxstat"    ( set "WANT_FXSTAT=1"    & set "ANY_SELECTED=1" & shift & goto parse_args )
@@ -66,7 +64,6 @@ goto parse_args
 :args_done
 
 if "%ANY_SELECTED%"=="0" (
-	set "WANT_CLI=1"
 	set "WANT_CLI_FIXED=1"
 	set "WANT_RGA=1"
 	set "WANT_FXSTAT=1"
@@ -86,7 +83,7 @@ if defined SPIRV_TOOLS_DIR if exist "%SPIRV_TOOLS_DIR%\include\spirv-tools\optim
 if "%WANT_FXSTAT%"=="1" (
 	if "%HAVE_SPIRV_TOOLS%"=="0" (
 		echo ERROR: fxstat needs SPIRV-Tools. Set SPIRV_TOOLS_DIR, see the top of this script.
-		echo        To build without it, pick tools explicitly, e.g. --cli --cli-fixed --rga --coverage
+		echo        To build without it, pick tools explicitly, e.g. --cli-fixed --rga --coverage
 		exit /b 1
 	)
 	where cmake >nul 2>nul || ( echo ERROR: fxstat needs cmake on PATH. & exit /b 1 )
@@ -162,14 +159,6 @@ REM MinGW does not (see docs\CHECKLIST.md, item 5).
 set "FLAGS=-std=c++17 -Os -fno-exceptions -ffunction-sections -fdata-sections -s -static -include share.h"
 set "LINK_FLAGS=-Wl,--gc-sections"
 set "BUILT="
-
-REM --- reshadefx_cli (upstream, unmodified) ----------------------------------
-
-if "%WANT_CLI%"=="1" (
-	echo Building reshadefx_cli.exe ...
-	g++ %FLAGS% %INCLUDES% %FX_SRC% %CODEGEN_SRC% "%R%\tools\fxc.cpp" %LINK_FLAGS% -ld3dcompiler -o "%OUT_DIR%\reshadefx_cli.exe" || exit /b 1
-	set "BUILT=!BUILT! reshadefx_cli.exe"
-)
 
 REM --- reshadefx_cli_fixed (fxc-fix.py applied) ------------------------------
 

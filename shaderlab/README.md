@@ -138,7 +138,7 @@ Splitscreen, Template, Layer), which is expected for those defaults.
 Known limits:
 - This is D3D11 through vkd3d-shader, not Microsoft's compiler. Code that FXC
   accepts and vkd3d rejects (or the reverse) will show up as a difference.
-  `reshadefx_cli --dxbc` uses the same vkd3d back end, so the two agree with each
+  `reshadefx_cli_fixed --dxbc` uses the same vkd3d back end, so the two agree with each
   other.
 - The renderer is llvmpipe. It is fine for correctness, but the timings mean
   nothing for GPU performance. Use `reshadefx_rga` / `fxstat` for that.

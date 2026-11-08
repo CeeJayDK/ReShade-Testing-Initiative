@@ -75,7 +75,7 @@ the same tool.
 ## Reproducing
 
 ```
-python3 audit_paths.py --cli <reshadefx_cli> \
+python3 audit_paths.py --cli <reshadefx_cli_fixed> \
     -I reshade-shaders/Shaders -I SweetFX/Shaders \
     --scan-dirs SweetFX/Shaders --scan-dirs reshade-shaders/Shaders \
     SweetFX/Shaders/SweetFX/*.fx reshade-shaders/Shaders/*.fx

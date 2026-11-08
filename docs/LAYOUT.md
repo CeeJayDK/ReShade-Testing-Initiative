@@ -48,12 +48,11 @@ docs/
 bin/      (gitignored) build output
 ```
 
-## The five executables
+## The four executables
 
 | binary | source | --dxbc |
 |---|---|---|
-| `reshadefx_cli` | crosire's `tools/fxc.cpp`, unmodified | Windows only (D3DCompiler) |
-| `reshadefx_cli_fixed` | same, with `tools/fxc-fix.py` applied | Windows: D3DCompiler, Linux: vkd3d |
+| `reshadefx_cli_fixed` | crosire's `tools/fxc.cpp` with `tools/fxc-fix.py` applied | Windows: D3DCompiler, Linux: vkd3d |
 | `reshadefx_rga` | `rga/` | n/a (SPIR-V) |
 | `fxstat` | `fxstat/` | Windows: D3DCompiler, Linux: vkd3d |
 | `reshadefx_coverage` | `cli/coverage.cpp` | Windows: D3DCompiler, Linux: vkd3d |

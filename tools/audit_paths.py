@@ -13,7 +13,7 @@ the resulting source. Anything with more than one group is making an API-specifi
 decision; whether that decision is right is then a human question, but the list
 is short and exact.
 
-usage: audit_paths.py --cli <reshadefx_cli> -I <dir> [-I <dir>] <effect.fx>...
+usage: audit_paths.py --cli <reshadefx_cli_fixed> -I <dir> [-I <dir>] <effect.fx>...
 """
 
 import argparse

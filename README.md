@@ -19,36 +19,28 @@ itself would give.
 `build_reshade_testing_initiative.sh` (Linux/macOS) and
 `build_reshade_testing_initiative.bat` (Windows, MinGW-w64) fetch
 [crosire/reshade](https://github.com/crosire/reshade)'s own source at the tag in
-`RESHADE_VERSION` and build five tools from it:
+`RESHADE_VERSION` and build four tools from it:
 
 | tool | what it does |
 |---|---|
-| `reshadefx_cli` | crosire's own `ReShadeFXC`, unmodified. Compiles a `.fx` file and reports the exact errors ReShade would. |
-| `reshadefx_cli_fixed` | the same tool with six bug fixes applied ([docs/upstream/reshade-fxc.md](docs/upstream/reshade-fxc.md)), `--dxbc` on Linux too, and `--all-entry-points` to compile every entry point from one parse ([docs/COMPILE-SPEED.md](docs/COMPILE-SPEED.md)). |
+| `reshadefx_cli_fixed` | crosire's `ReShadeFXC` with six bug fixes applied ([docs/upstream/reshade-fxc.md](docs/upstream/reshade-fxc.md)). Compiles a `.fx` file and reports the errors ReShade would. `--dxbc` on Linux too, and `--all-entry-points` to compile every entry point from one parse ([docs/COMPILE-SPEED.md](docs/COMPILE-SPEED.md)). |
 | `reshadefx_rga` | per-stage SPIR-V instruction cost; optionally drives AMD's RGA for real GPU ISA and register data. |
 | `fxstat` | SPIR-V and DXBC instruction statistics, lane-weighted ALU and transcendental counts, optional real AMD GPU ISA via RGA (`--rga`), JSON output, baseline/diff mode. See [fxstat/README.md](fxstat/README.md). |
 | `reshadefx_coverage` | how much of a shader corpus compiles to DXBC, per shader model. |
 
 More detail on each:
 
-- **`reshadefx_cli`** — equivalent to the `ReShadeFXC` tool that ships with
-  ReShade, built from crosire's unmodified `tools/fxc.cpp`. On Windows it
-  also supports `--dxbc --shader-model <30|40|41|50|...>` for real
-  DX9/10/11/12-equivalent compilation — this links crosire's own unmodified
-  `effect_codegen_dxbc.cpp` against the actual Microsoft D3DCompiler
-  (`d3dcompiler_47.dll`, which ships with Windows itself), so it's the real
-  compiler ReShade uses on those APIs. On Linux/macOS this build only produces
-  `--hlsl` text for those shader models, which is the same code ReShade would
-  hand to D3DCompile, just without the compile-and-optimize step.
-- **`reshadefx_cli_fixed`** — `reshadefx_cli` with
-  [`tools/fxc-fix.py`](tools/fxc-fix.py) applied. Upstream's tool sets up a
-  different preprocessor environment than the runtime does, so it rejects
-  some effects ReShade compiles fine and silently compiles the wrong branch of
-  others. The fixed build also adds `--list-entry-points` and `-Fc`. On Linux
-  its `--dxbc` works, via vkd3d-shader
-  ([docs/DXBC-ON-LINUX.md](docs/DXBC-ON-LINUX.md)); on Windows it uses
-  D3DCompiler like the upstream one. Use this one unless you specifically need
-  upstream's exact behaviour.
+- **`reshadefx_cli_fixed`** — crosire's `tools/fxc.cpp` (the `ReShadeFXC` tool
+  that ships with ReShade) with [`tools/fxc-fix.py`](tools/fxc-fix.py) applied.
+  Upstream's tool is not kept up to date with the runtime's compiler: it sets
+  up a different preprocessor environment, so it rejects some effects ReShade
+  compiles fine and silently compiles the wrong branch of others. That is why
+  only the fixed build is shipped. It also adds `--list-entry-points` and
+  `-Fc`. `--dxbc --shader-model <30|40|41|50|...>` gives real
+  DX9/10/11/12-equivalent compilation: on Windows through crosire's own
+  `effect_codegen_dxbc.cpp` and the actual Microsoft D3DCompiler
+  (`d3dcompiler_47.dll`, which ships with Windows itself), on Linux via
+  vkd3d-shader ([docs/DXBC-ON-LINUX.md](docs/DXBC-ON-LINUX.md)).
 - **`reshadefx_rga`** — makes [RGA (Radeon GPU Analyzer)](https://github.com/GPUOpen-Tools/radeon_gpu_analyzer)
   understand ReshadeFX shaders directly. RGA only speaks raw HLSL/GLSL/SPIR-V
   and has no idea what a `technique`/`pass` is or how to resolve
@@ -78,15 +70,12 @@ More detail on each:
   and why.
 
 `reshadefx_rga` and `fxstat` accept `--json` for machine-readable output.
-`reshadefx_cli` deliberately stays plain text only — it's built from crosire's
-own unmodified `tools/fxc.cpp`, fetched fresh every build, so patching a
-`--json` flag into it would mean re-patching on every ReShade version bump.
 
 ## Usage
 
 ```bash
 ./build_reshade_testing_initiative.sh     # builds everything into ./bin (Windows: .bat)
-./bin/reshadefx_cli --hlsl -I path/to/reshade-shaders/Shaders -Fo out.hlsl myshader.fx
+./bin/reshadefx_cli_fixed --hlsl -I path/to/reshade-shaders/Shaders -Fo out.hlsl myshader.fx
 ./bin/reshadefx_rga -I path/to/reshade-shaders/Shaders myshader.fx
 ```
 
@@ -110,12 +99,12 @@ shown above:
 ./bin/reshadefx_rga --json -I path/to/reshade-shaders/Shaders myshader.fx
 ```
 
-On Windows, `reshadefx_cli.exe` and `reshadefx_cli_fixed.exe` support real DX9/10/11/12
+On Windows, `reshadefx_cli_fixed.exe` supports real DX9/10/11/12
 compilation via the actual Microsoft D3DCompiler (`--shader-model` maps
 directly to the profile: `30`=DX9, `40`=DX10, `41`/`50`=DX11/12):
 
 ```powershell
-reshadefx_cli.exe --dxbc --shader-model 50 -I path\to\reshade-shaders\Shaders -E MyEntryPoint -Fo out.cso myshader.fx
+reshadefx_cli_fixed.exe --dxbc --shader-model 50 -I path\to\reshade-shaders\Shaders -E MyEntryPoint -Fo out.cso myshader.fx
 ```
 
 ## Testing shaders under different ReShade conditions
@@ -176,8 +165,8 @@ levels.fx` picks that same file back up. Hand-edit the saved file (or point
 
 ## Building
 
-With no arguments the build script builds all five tools into `./bin`. Pass
-any of `--cli`, `--cli-fixed`, `--rga`, `--fxstat`, `--coverage` to build only
+With no arguments the build script builds all four tools into `./bin`. Pass
+any of `--cli-fixed`, `--rga`, `--fxstat`, `--coverage` to build only
 those — e.g. for a project like ShaderBridge, where you only care whether a
 port compiles:
 
@@ -190,7 +179,6 @@ What each needs besides git and g++:
 
 | | Linux/macOS | Windows |
 |---|---|---|
-| `reshadefx_cli` | — | — |
 | `reshadefx_cli_fixed` | python3, bison, flex | python |
 | `reshadefx_rga` | SPIRV-Tools (optional, for `--optimize`) | same, via `SPIRV_TOOLS_DIR` |
 | `fxstat` | cmake, SPIRV-Tools, bison, flex | cmake, SPIRV-Tools via `SPIRV_TOOLS_DIR` |

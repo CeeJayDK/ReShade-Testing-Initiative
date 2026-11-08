@@ -22,7 +22,7 @@ SPIRV-Tools and `--optimize` is a no-op.
 - [ ] Build with the `.bat` and confirm the `-Os -fno-exceptions ... -s` flags
       still produce a working binary — the handoff flagged this as unverified
       and it still is
-- [ ] `reshadefx_cli --dxbc --shader-model 50 -E <entry> <shader>.fx` against one
+- [ ] `reshadefx_cli_fixed --dxbc --shader-model 50 -E <entry> <shader>.fx` against one
       real shader, confirm the output is sane. Still the biggest untested thing.
       Wine cannot substitute — I confirmed that a third time this session
       (its `d3dcompiler_47.dll` segfaulted on ReShade's generated HLSL)

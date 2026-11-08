@@ -67,8 +67,8 @@ fxstat/                    instruction statistics; --dxbc and --spirv back ends
     -I path/to/reshade-shaders/Shaders MyShader.fx
 ```
 
-`reshadefx_cli_fixed` is the vkd3d-backed one; plain `reshadefx_cli` is
-crosire's unmodified tool and has no `--dxbc` on Linux.
+`reshadefx_cli_fixed` is the vkd3d-backed compiler. Crosire's unmodified tool
+is no longer built: it lags the runtime's compiler setup.
 
 Needs `gcc`/`g++`, `cmake`, `bison`, `flex`, `python3`, `git`. No Wine, no
 Microsoft redistributable, no Vulkan SDK.
