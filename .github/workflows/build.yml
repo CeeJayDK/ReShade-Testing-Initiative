@@ -16,7 +16,10 @@ on:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-latest
+    # Not ubuntu-latest: on the 26.04 image the spirv-tools package no longer
+    # provides /usr/include/spirv-tools, which the build looks for. The image
+    # also sets the SPIRV-Tools version, and the tests compare optimised counts.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
 
