@@ -7,10 +7,11 @@ on:
 
 permissions:
   contents: write
+  actions: write   # to start the Build workflow for the new tag
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # the image build.yml builds on
     steps:
       - uses: actions/checkout@v6
         with:
@@ -46,7 +47,8 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Bump RESHADE_VERSION and tag a new release
+      - name: Bump RESHADE_VERSION
+        id: bump
         if: steps.compare.outputs.changed == 'true'
         run: |
           NEW="${{ steps.upstream.outputs.tag }}"
@@ -54,10 +56,30 @@ jobs:
           # Guard against re-tagging if this ever runs twice for the same version
           if git rev-parse "$NEW" >/dev/null 2>&1; then
             echo "Tag $NEW already exists on this repo, skipping."
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           echo "$NEW" > RESHADE_VERSION
+          echo "bumped=true" >> "$GITHUB_OUTPUT"
+
+      # patches/*.patch and tools/fxc-fix.py are written against one ReShade
+      # version. Build against the new one before anything is pushed, so a
+      # version they no longer apply to fails here instead of breaking main.
+      - name: Install dependencies
+        if: steps.bump.outputs.bumped == 'true'
+        run: sudo apt-get update -q && sudo apt-get install -y -q spirv-tools bison flex cmake
+
+      - name: Build against the new version
+        if: steps.bump.outputs.bumped == 'true'
+        run: ./build_reshade_testing_initiative.sh "$RUNNER_TEMP/bin"
+
+      - name: Commit, tag and start the release build
+        if: steps.bump.outputs.bumped == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NEW="${{ steps.upstream.outputs.tag }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add RESHADE_VERSION
@@ -65,3 +87,8 @@ jobs:
           git tag "$NEW"
           git push origin HEAD:main
           git push origin "$NEW"
+          # A push made with the workflow's own token does not start other
+          # workflows, so the tag alone would never be built or released.
+          # workflow_dispatch is the exception: run Build on the tag, which
+          # tests it and publishes the release.
+          gh workflow run build.yml --ref "$NEW"

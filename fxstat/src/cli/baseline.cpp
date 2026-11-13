@@ -9,6 +9,7 @@
 
 #include "baseline.hpp"
 
+#include <cctype>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -51,7 +52,8 @@ namespace
 	}
 }
 
-bool fxstat::load_baseline(const std::string &path, std::map<std::string, baseline_entry> &out, std::string &error)
+bool fxstat::load_baseline(const std::string &path, std::map<std::string, baseline_entry> &out,
+	baseline_info &info, std::string &error)
 {
 	std::ifstream file(path);
 	if (!file)
@@ -71,6 +73,11 @@ bool fxstat::load_baseline(const std::string &path, std::map<std::string, baseli
 		return false;
 	}
 
+	// The report header, everything before the entry point list.
+	find_string(text, "backend", 0, list, info.backend);
+	find_string(text, "dxbc_compiler", 0, list, info.dxbc_compiler);
+	find_string(text, "optimizer_version", 0, list, info.optimizer_version);
+
 	// Each entry point is an object starting at a '{' after the list.
 	size_t pos = text.find('[', list);
 	if (pos == std::string::npos)
@@ -88,7 +95,14 @@ bool fxstat::load_baseline(const std::string &path, std::map<std::string, baseli
 		size_t close = open, depth = 0;
 		for (; close < text.size(); ++close)
 		{
-			if (text[close] == '{') depth++;
+			if (text[close] == '"')
+			{
+				// Skip strings: an RGA error message may contain braces.
+				for (++close; close < text.size() && text[close] != '"'; ++close)
+					if (text[close] == '\\')
+						++close;
+			}
+			else if (text[close] == '{') depth++;
 			else if (text[close] == '}' && --depth == 0) break;
 		}
 		if (close >= text.size())

@@ -19,6 +19,7 @@
 #define RESHADEFX_STR(x) RESHADEFX_STR2(x)
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -90,22 +91,48 @@ int main(int argc, char *argv[])
 	bool perf = false;
 	bool verbose = false;
 
+	bool usage_error = false;
 	for (int i = 1; i < argc; ++i)
 	{
 		const std::string arg = argv[i];
-		if (arg == "-I")                        includes.push_back(argv[++i]);
-		else if (arg == "--sm")                 models.push_back(std::stoul(argv[++i]));
+		if (arg == "-I" || arg == "--sm")
+		{
+			if (i + 1 >= argc)
+			{
+				std::fprintf(stderr, "error: %s needs a value\n", arg.c_str());
+				usage_error = true;
+				break;
+			}
+			const char *const value = argv[++i];
+			if (arg == "-I")
+			{
+				includes.push_back(value);
+				continue;
+			}
+			char *end = nullptr;
+			const unsigned long sm = std::strtoul(value, &end, 10);
+			if (end == value || *end != '\0')
+			{
+				std::fprintf(stderr, "error: --sm needs a number, not '%s'\n", value);
+				usage_error = true;
+				break;
+			}
+			models.push_back(static_cast<unsigned int>(sm));
+		}
 		else if (arg == "--spec-constants")     perf = true;
 		else if (arg == "-v")                   verbose = true;
 		else                                    files.push_back(arg);
 	}
 	if (models.empty())
 		models = { 50 };
-	if (files.empty())
+	if (usage_error || files.empty())
 	{
-		std::fprintf(stderr, "usage: coverage [-I dir] [--sm N] [--spec-constants] [-v] <effect.fx>...\n");
+		std::fprintf(stderr, "usage: coverage [-I dir] [--sm N] [--spec-constants] [-v] <effect.fx>...\n"
+			"exit code: 0 = every entry point compiled, 1 = something failed or bad usage\n");
 		return 1;
 	}
+
+	bool any_effect_failed = false;
 
 	for (const unsigned int sm : models)
 	{
@@ -169,6 +196,8 @@ int main(int argc, char *argv[])
 
 		std::printf("\n=== shader model %u%s ===\n", sm, perf ? " (performance mode)" : "");
 		std::printf("effects:      %d ok, %d failed\n", effects_ok, effects_failed);
+		if (effects_failed != 0)
+			any_effect_failed = true;
 		std::printf("entry points: %d / %d compiled to DXBC\n", total_ok, total_eps);
 
 		for (const auto &[file, r] : results)
@@ -187,5 +216,6 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	return 0;
+	// So a script or CI step can tell a clean corpus from one with failures.
+	return any_effect_failed ? 1 : 0;
 }

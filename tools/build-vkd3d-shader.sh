@@ -18,7 +18,10 @@
 #
 # usage: build-vkd3d-shader.sh [out dir]
 #
-# Set WINE_SRC to reuse an existing Wine checkout instead of fetching one.
+# The Wine commit is pinned (WINE_REF below), because every DXBC count these
+# tools report depends on the vkd3d revision: with a moving one, two builds of
+# the same source can disagree. Set WINE_REF to build another commit, or
+# WINE_SRC to reuse an existing Wine checkout as it is instead of fetching one.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -26,6 +29,11 @@ mkdir -p "${1:-$PWD/vkd3d-build}"
 OUT="$(cd "${1:-$PWD/vkd3d-build}" && pwd)"
 WINE_SRC="${WINE_SRC:-$OUT/wine-src}"
 VKD3D_WINDOWS_H_SRC="${VKD3D_WINDOWS_H_SRC:-}"
+# The same commit shaderlab/build_runtime.sh builds its d3dcompiler_47.dll from.
+WINE_REF="${WINE_REF:-7b3fff76fa5178f6ce0141b2c776afa2a822f101}"
+VKD3D_UPSTREAM_REF="${VKD3D_UPSTREAM_REF:-d1d9e713f2a2c0ce439f7c3a44fcc5cd7dcaba76}"
+OWN_CLONE=0
+[ "$WINE_SRC" = "$OUT/wine-src" ] && OWN_CLONE=1
 
 for t in git bison flex python3 gcc ar; do
 	command -v "$t" >/dev/null || { echo "missing required tool: $t" >&2; exit 1; }
@@ -35,43 +43,58 @@ done
 # 1. sources
 # ---------------------------------------------------------------------------
 
-if [ ! -f "$WINE_SRC/libs/vkd3d/libs/vkd3d-shader/hlsl.y" ]; then
-	echo "Fetching Wine's vkd3d subtree ..."
-	rm -rf "$WINE_SRC"
-	git clone --depth 1 --filter=blob:none --sparse \
-		https://github.com/wine-mirror/wine.git "$WINE_SRC"
-	git -C "$WINE_SRC" sparse-checkout set libs/vkd3d include
+if [ "$OWN_CLONE" -eq 1 ]; then
+	if [ ! -d "$WINE_SRC/.git" ]; then
+		echo "Fetching Wine's vkd3d subtree ..."
+		rm -rf "$WINE_SRC"
+		git clone --quiet --depth 1 --filter=blob:none --sparse \
+			https://github.com/wine-mirror/wine.git "$WINE_SRC"
+		git -C "$WINE_SRC" sparse-checkout set libs/vkd3d include
+	fi
+	if [ "$(git -C "$WINE_SRC" rev-parse HEAD)" != "$WINE_REF" ]; then
+		git -C "$WINE_SRC" fetch --quiet --depth 1 --filter=blob:none origin "$WINE_REF"
+	fi
+	# -f: start from a clean tree, so an edited or deleted patch does not leave
+	# its old version behind.
+	git -C "$WINE_SRC" -c advice.detachedHead=false checkout --quiet -f "$WINE_REF"
 fi
 
 V="$WINE_SRC/libs/vkd3d"
 [ -f "$V/libs/vkd3d-shader/hlsl.y" ] || { echo "no vkd3d tree under $V" >&2; exit 1; }
 
 # Local fixes to vkd3d (patches/vkd3d/*.patch, paths relative to the Wine tree),
-# applied once. Wine's copy follows Wine master, so a patch that stops applying
-# is reported and skipped instead of failing the build.
+# applied once. Against the pinned commit a patch that does not apply is an
+# error: building without it would silently change what compiles. A WINE_SRC
+# you passed in is never reset and may be any revision, so there it is reported
+# and skipped.
 PATCH_DIR="$SCRIPT_DIR/../patches/vkd3d"
-# Our own clone starts clean each time, so an edited or deleted patch does not
-# leave its old version behind. A WINE_SRC you passed in is never reset.
-if [ "$WINE_SRC" = "$OUT/wine-src" ]; then
-	git -C "$WINE_SRC" checkout -q -- libs/vkd3d
-fi
 for P in "$PATCH_DIR"/*.patch; do
 	[ -f "$P" ] || continue
 	if git -C "$WINE_SRC" apply --reverse --check "$P" 2>/dev/null; then
 		continue
 	elif git -C "$WINE_SRC" apply "$P"; then
 		echo "Applied $(basename "$P")"
+	elif [ "$OWN_CLONE" -eq 1 ]; then
+		echo "ERROR: $(basename "$P") does not apply to wine $WINE_REF" >&2
+		exit 1
 	else
 		echo "WARNING: $(basename "$P") does not apply to this vkd3d, building without it" >&2
 	fi
 done
 
 # upstream's vkd3d_windows.h is the one piece Wine drops entirely. Any upstream
-# checkout has it and it changes very rarely.
+# checkout has it and it changes very rarely; pinned all the same.
 if [ -z "$VKD3D_WINDOWS_H_SRC" ]; then
-	if [ ! -f "$OUT/vkd3d-upstream/include/vkd3d_windows.h" ]; then
+	U="$OUT/vkd3d-upstream"
+	if [ ! -d "$U/.git" ]; then
 		echo "Fetching upstream vkd3d for vkd3d_windows.h ..."
-		git clone --quiet --depth 1 https://github.com/Gcenx/vkd3d.git "$OUT/vkd3d-upstream"
+		rm -rf "$U"
+		git init --quiet "$U"
+		git -C "$U" remote add origin https://github.com/Gcenx/vkd3d.git
+	fi
+	if [ "$(git -C "$U" rev-parse -q --verify HEAD 2>/dev/null)" != "$VKD3D_UPSTREAM_REF" ]; then
+		git -C "$U" fetch --quiet --depth 1 origin "$VKD3D_UPSTREAM_REF"
+		git -C "$U" -c advice.detachedHead=false checkout --quiet -f FETCH_HEAD
 	fi
 	VKD3D_WINDOWS_H_SRC="$OUT/vkd3d-upstream/include/vkd3d_windows.h"
 fi
@@ -235,8 +258,9 @@ for p in "${pids[@]}"; do wait "$p" || fail=1; done
 
 rm -f libvkd3d-shader.a
 ar rcs libvkd3d-shader.a obj/*.o
-# The main build script rebuilds when patches/vkd3d changes.
-cat "$PATCH_DIR"/*.patch 2>/dev/null | cksum > patches.cksum
+# The main build script rebuilds when this script (and with it the pinned
+# commits) or patches/vkd3d changes.
+cat "$SCRIPT_DIR/build-vkd3d-shader.sh" "$PATCH_DIR"/*.patch 2>/dev/null | cksum > patches.cksum
 
 echo
 echo "built: $OUT/libvkd3d-shader.a"

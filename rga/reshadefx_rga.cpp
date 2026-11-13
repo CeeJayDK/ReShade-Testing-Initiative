@@ -19,6 +19,7 @@
 #include "GLSL.std.450.h"
 #include "json_util.hpp"
 #include "spirv_optimize.hpp"
+#include "spirv_patch.hpp" // fxstat/src/core
 #include <cstring>
 #include <cstdint>
 #include <cstdio>
@@ -31,6 +32,9 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
+#include <memory>
+#include <random>
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -104,9 +108,14 @@ static bool is_transcendental_ext_inst(uint32_t instruction)
 	}
 }
 
-// Classifies every instruction in a SPIR-V module by real SPIR-V opcode.
+// Classifies the instructions in a SPIR-V module by real SPIR-V opcode.
 // This is a general cross-vendor proxy (documented GPU ISA behavior), not a
 // specific GPU's exact cycle timing - see --rga for hardware-accurate data.
+//
+// Only functions reachable from the module's entry point are counted. reshadefx
+// drops the other entry points from a per-entry-point module, but keeps the
+// helper functions only they call, so counting the whole stream would charge
+// every pass for code of the other passes.
 static instruction_counts classify_spirv_instructions(const std::string &binary)
 {
 	instruction_counts counts;
@@ -116,13 +125,61 @@ static instruction_counts classify_spirv_instructions(const std::string &binary)
 	const auto *words = reinterpret_cast<const uint32_t *>(binary.data());
 	const size_t word_count = binary.size() / 4;
 
+	// Pass 1: which function each instruction belongs to, and the call graph.
+	std::vector<uint32_t> entry_functions;
+	std::map<uint32_t, std::vector<uint32_t>> calls; // function id -> callee ids
+	for (size_t i = 5, current = 0; i < word_count;)
+	{
+		const uint32_t word_length = words[i] >> 16;
+		const uint32_t opcode = words[i] & 0xFFFF;
+		if (word_length == 0 || i + word_length > word_count)
+			break;
+		if (opcode == 15 && word_length >= 3) // OpEntryPoint <model> <function id> ...
+			entry_functions.push_back(words[i + 2]);
+		else if (opcode == 54 && word_length >= 3) // OpFunction <type> <result id> ...
+			calls[current = words[i + 2]];
+		else if (opcode == 57 && word_length >= 4 && current != 0) // OpFunctionCall <type> <id> <function id>
+			calls[current].push_back(words[i + 3]);
+		else if (opcode == 56) // OpFunctionEnd
+			current = 0;
+		i += word_length;
+	}
+
+	// A module without an entry point is counted in full.
+	std::set<uint32_t> reachable;
+	std::vector<uint32_t> worklist = entry_functions;
+	if (worklist.empty())
+		for (const auto &function : calls)
+			worklist.push_back(function.first);
+	while (!worklist.empty())
+	{
+		const uint32_t id = worklist.back();
+		worklist.pop_back();
+		if (!reachable.insert(id).second)
+			continue;
+		if (const auto it = calls.find(id); it != calls.end())
+			worklist.insert(worklist.end(), it->second.begin(), it->second.end());
+	}
+
+	// Pass 2: count.
+	bool skip_function = false;
 	size_t i = 5; // skip the 5-word SPIR-V header
 	while (i < word_count)
 	{
 		const uint32_t word_length = words[i] >> 16;
 		const uint32_t opcode = words[i] & 0xFFFF;
-		if (word_length == 0)
+		if (word_length == 0 || i + word_length > word_count)
 			break;
+
+		if (opcode == 54 && word_length >= 3) // OpFunction
+			skip_function = reachable.find(words[i + 2]) == reachable.end();
+		if (skip_function)
+		{
+			if (opcode == 56) // OpFunctionEnd
+				skip_function = false;
+			i += word_length;
+			continue;
+		}
 
 		switch (opcode)
 		{
@@ -173,6 +230,7 @@ static instruction_counts classify_spirv_instructions(const std::string &binary)
 		case 19: case 20: case 21: case 22: case 23: case 24: case 25: case 26: case 27: // OpType* family
 		case 28: case 29: case 30: case 32: case 33:
 		case 41: case 42: case 43: case 44: case 46: // OpConstant* family
+		case 48: case 49: case 50: case 51: case 52: // OpSpecConstant* family
 		case 54: case 55: case 56: // OpFunction, OpFunctionParameter, OpFunctionEnd
 		case 71: case 72: // OpDecorate, OpMemberDecorate
 		case 248: // OpLabel (structural marker, not an operation)
@@ -200,7 +258,8 @@ static instruction_counts classify_spirv_instructions(const std::string &binary)
 static void print_usage(const char *path)
 {
 	std::cout <<
-		"usage: " << path << " [-D name=value] [-I path] [--rga <path-to-rga>] [--asic <name>]... [--json]\n"
+		"usage: " << path << " [-D name=value] [-I path] [--rga <path-to-rga>] [--rga-mode <mode>]\n"
+		"       [--asic <name>]... [--json]\n"
 		"       [--reshade-version <num>] [--perf]\n"
 		"       [--load-settings[=<path>]] [--save-settings[=<path>]]\n"
 		"       [--width <n>] [--height <n>] <file.fx>\n\n"
@@ -210,6 +269,8 @@ static void print_usage(const char *path)
 		"                   If given, real GPU ISA and register usage are fetched\n"
 		"                   for each --asic. Without it, only the built-in SPIR-V\n"
 		"                   instruction classification is printed.\n"
+		"  --rga-mode <m>   RGA mode, its -s option (default: vk-spv-offline, which\n"
+		"                   needs no GPU or driver; \"vulkan\" uses the installed one).\n"
 		"  --asic <name>    AMD GPU codename to target (e.g. gfx1100). Repeatable.\n"
 		"                   Defaults to gfx1100 (RDNA3) if --rga is given but no\n"
 		"                   --asic is specified.\n"
@@ -227,13 +288,13 @@ static void print_usage(const char *path)
 		"                   passes a GPU driver runs, before counting. reshadefx\n"
 		"                   emits both sides of every branch and leaves all\n"
 		"                   optimization to the driver, so without this the count\n"
-		"                   includes code no GPU executes (LumaSharpen: 116 vs 15\n"
-		"                   cheap_alu, 16 vs 5 texture). Implies --perf. This is a\n"
+		"                   includes code no GPU executes (LumaSharpen: 97 vs 21\n"
+		"                   cheap_alu, 15 vs 5 texture). Implies --perf. This is a\n"
 		"                   vendor-neutral proxy, not any specific driver - use it\n"
 		"                   to compare shader versions, not to predict GPU cost.\n"
 		"  --load-settings[=<path>] ReShade-preset-format file (or a real ReShade\n"
 		"                   preset) to read plain-numeric uniform overrides from,\n"
-		"                   applied to the source before compiling. Implies\n"
+		"                   baked into the compiled modules. Implies\n"
 		"                   --perf, since that's the only mode where a\n"
 		"                   uniform's value becomes part of the compiled code.\n"
 		"                   Without =<path>, defaults to \"<effect-name>.ini\"\n"
@@ -370,176 +431,37 @@ static void setup_reshade_macros(reshadefx::preprocessor &pp, const std::string 
 		"#define tex2Dgather3 tex2DgatherA\n");
 }
 
-// Replaces the plain-number default value of matching "uniform <type> <name>
-// ... = <value>;" declarations with values from a settings file, directly in
-// the source text, before it is handed to the preprocessor/parser.
+// The bit pattern a settings-file value has as a specialization constant of
+// the given type: the float bits for floats, the integer itself for integers,
+// 0 or 1 for booleans.
 //
-// This is necessary rather than cosmetic: reshadefx's SPIR-V backend bakes a
-// uniform's default straight into the emitted OpSpecConstant literal at parse
-// time (effect_codegen_spirv.cpp, define_uniform()) and never reads it back
-// afterward, so mutating codegen->module().spec_constants after the fact (the
-// way ReShade's own runtime.cpp does for its preset system) has no effect on
-// the SPIR-V this tool emits - real ReShade instead overrides the value via
-// the graphics API's specialization-constant mechanism at pipeline-creation
-// time, which is downstream of anything this tool touches. Rewriting the
-// literal in the source before parsing is the only way to actually exercise
-// a different performance-mode code path here.
-//
-// Only handles plain numeric literals (matching ReShade's own preset format,
-// which cannot represent arbitrary expressions either) - annotation blocks
-// ("< ... >") are skipped over structurally so a ";" or ">" inside a quoted
-// annotation string does not confuse the scan, but the default-value
-// expression itself is located purely by bracket/quote depth, not parsed.
-static std::string apply_settings_to_source(std::string source, const std::map<std::string, std::vector<std::string>> &settings)
+// --load-settings values are baked into the SPIR-V module itself, by
+// overwriting each specialization constant's default (spirv_patch.cpp, shared
+// with fxstat). reshadefx writes a uniform's default into its OpSpecConstant at
+// parse time and real ReShade overrides it through the graphics API at
+// pipeline creation, which this tool has no equivalent of. Patching the module
+// reaches every uniform of the effect, including those declared in files it
+// includes.
+static uint32_t setting_value_bits(reshadefx::type::datatype base, const std::string &text)
 {
-	if (settings.empty())
-		return source;
-
-	const auto skip_ws = [&](size_t p) {
-		while (p < source.size() && std::isspace(static_cast<unsigned char>(source[p])))
-			++p;
-		return p;
-	};
-	const auto read_identifier = [&](size_t p) {
-		const size_t start = p;
-		while (p < source.size() && (std::isalnum(static_cast<unsigned char>(source[p])) || source[p] == '_'))
-			++p;
-		return source.substr(start, p - start);
-	};
-	// Advances 'p' past a string literal (if one starts there) or one
-	// character otherwise; used to keep quote contents from confusing the
-	// bracket/paren depth tracking below.
-	const auto skip_string_or_char = [&](size_t p) {
-		if (p < source.size() && source[p] == '"')
-		{
-			++p;
-			while (p < source.size() && source[p] != '"')
-				p += (source[p] == '\\' && p + 1 < source.size()) ? 2 : 1;
-			if (p < source.size())
-				++p; // closing quote
-			return p;
-		}
-		return p + 1;
-	};
-
-	size_t pos = 0;
-	while ((pos = source.find("uniform", pos)) != std::string::npos)
+	switch (base)
 	{
-		size_t i = pos + 7; // length of "uniform"
-
-		// Require a word boundary so this doesn't match part of a longer
-		// identifier (e.g. a variable literally named "uniformity").
-		if (i >= source.size() || !std::isspace(static_cast<unsigned char>(source[i])))
-		{
-			pos += 7;
-			continue;
-		}
-
-		i = skip_ws(i);
-		const std::string type_name = read_identifier(i);
-		i += type_name.size();
-		i = skip_ws(i);
-		const std::string var_name = read_identifier(i);
-		i += var_name.size();
-
-		if (type_name.empty() || var_name.empty())
-		{
-			pos += 7;
-			continue;
-		}
-
-		const auto settings_it = settings.find(var_name);
-
-		// Skip an optional array size "[N]".
-		i = skip_ws(i);
-		if (i < source.size() && source[i] == '[')
-		{
-			const size_t close = source.find(']', i);
-			if (close == std::string::npos)
-				break; // malformed source - stop rather than misparse further
-			i = close + 1;
-		}
-
-		// Skip an optional annotation block "< ... >", tracking nested
-		// angle brackets and quoted strings so a ">" or ";" inside e.g.
-		// ui_tooltip = "a; b > c"; does not end the block early.
-		i = skip_ws(i);
-		if (i < source.size() && source[i] == '<')
-		{
-			int depth = 0;
-			do
-			{
-				if (source[i] == '"')
-					i = skip_string_or_char(i);
-				else
-				{
-					if (source[i] == '<')
-						++depth;
-					else if (source[i] == '>')
-						--depth;
-					++i;
-				}
-			} while (i < source.size() && depth > 0);
-		}
-
-		i = skip_ws(i);
-
-		if (i < source.size() && source[i] == '=' && settings_it != settings.end())
-		{
-			const size_t value_start = i + 1;
-
-			// Find the terminating top-level ";" - skipping over parens
-			// (vector/matrix constructor syntax, e.g. "float3(1, 2, 3)")
-			// and quoted strings so nothing inside those ends the scan early.
-			size_t j = value_start;
-			int paren_depth = 0;
-			while (j < source.size())
-			{
-				if (source[j] == '"')
-					j = skip_string_or_char(j);
-				else if (source[j] == '(')
-					{ ++paren_depth; ++j; }
-				else if (source[j] == ')')
-					{ --paren_depth; ++j; }
-				else if (source[j] == ';' && paren_depth == 0)
-					break;
-				else
-					++j;
-			}
-
-			if (j < source.size()) // found the terminating ';'
-			{
-				const std::vector<std::string> &values = settings_it->second;
-				std::string replacement;
-				if (values.size() == 1)
-				{
-					replacement = values[0];
-				}
-				else
-				{
-					replacement = type_name + "(";
-					for (size_t k = 0; k < values.size(); ++k)
-					{
-						if (k != 0)
-							replacement += ", ";
-						replacement += values[k];
-					}
-					replacement += ")";
-				}
-
-				source.replace(value_start, j - value_start, replacement);
-				i = value_start + replacement.size();
-			}
-			else
-			{
-				i = j;
-			}
-		}
-
-		pos = i;
+	case reshadefx::type::t_bool:
+		return (text == "true" || text == "True" || text == "TRUE" || std::strtod(text.c_str(), nullptr) != 0.0) ? 1 : 0;
+	case reshadefx::type::t_int:
+	case reshadefx::type::t_min16int:
+		return static_cast<uint32_t>(std::strtol(text.c_str(), nullptr, 10));
+	case reshadefx::type::t_uint:
+	case reshadefx::type::t_min16uint:
+		return static_cast<uint32_t>(std::strtoul(text.c_str(), nullptr, 10));
+	default: // t_float and the other floating-point variants
+	{
+		const float value = std::strtof(text.c_str(), nullptr);
+		uint32_t bits;
+		std::memcpy(&bits, &value, sizeof(bits));
+		return bits;
 	}
-
-	return source;
+	}
 }
 
 int main(int argc, char *argv[])
@@ -563,6 +485,9 @@ int main(int argc, char *argv[])
 
 	const char *source_file = nullptr;
 	std::string rga_path;
+	// The mode fxstat uses: AMD's Vulkan driver compiler run offline on a SPIR-V
+	// binary, with no GPU or driver installed.
+	std::string rga_mode = "vk-spv-offline";
 	std::vector<std::string> asics;
 	bool json_output = false;
 	bool load_settings_requested = false;
@@ -601,6 +526,10 @@ int main(int argc, char *argv[])
 		else if (arg == "--rga" && i + 1 < argc)
 		{
 			rga_path = argv[++i];
+		}
+		else if (arg == "--rga-mode" && i + 1 < argc)
+		{
+			rga_mode = argv[++i];
 		}
 		else if (arg == "--asic" && i + 1 < argc)
 		{
@@ -658,6 +587,12 @@ int main(int argc, char *argv[])
 		{
 			buffer_height = argv[++i];
 		}
+		else if (arg.size() > 1 && arg[0] == '-')
+		{
+			// Without this a mistyped option silently became the file to compile.
+			std::cerr << "error: unknown option '" << arg << "', or it is missing its value\n";
+			return 1;
+		}
 		else
 		{
 			source_file = argv[i];
@@ -688,6 +623,13 @@ int main(int argc, char *argv[])
 	if (load_settings_requested)
 		performance_mode = true;
 
+	// --optimize without --perf would fold nothing: the uniforms stay uniforms,
+	// so no branch becomes dead. Imply it rather than silently doing no work.
+	// This has to happen before the macros are defined below, or the effect is
+	// compiled with spec constants while __RESHADE_PERFORMANCE_MODE__ says 0.
+	if (optimize)
+		performance_mode = true;
+
 	// Apply defaults now, after parsing - see comment above main() for why
 	// this order matters (a redefinition with a different value is silently
 	// rejected, so any user override must be added to `pp` first).
@@ -698,11 +640,9 @@ int main(int argc, char *argv[])
 	setup_reshade_macros(pp, reshade_version, performance_mode,
 		buffer_width, buffer_height, renderer_id);
 
-	// Read the source into memory ourselves whenever either settings flag is
-	// in play - --load-settings needs to patch it before preprocessing, and
-	// --save-settings needs the untouched original to scan.
+	// --save-settings scans the source in a pass of its own, so read it here.
 	std::string original_source_text;
-	if (load_settings_requested || save_settings_requested)
+	if (save_settings_requested)
 	{
 		std::ifstream source_stream(source_file, std::ios::binary);
 		if (!source_stream)
@@ -727,9 +667,8 @@ int main(int argc, char *argv[])
 		// uniforms_to_spec_constants=false, since module().uniforms is only
 		// populated on that path (effect_codegen_spirv.cpp, define_uniform())
 		// - with it on, defaults live in module().spec_constants instead.
-		// Always run against the ORIGINAL source text, never anything
-		// --load-settings would have patched, so this reflects the shader's
-		// own authored defaults, not values we just injected.
+		// --load-settings values are applied to the compiled modules only, so
+		// this reflects the shader's own authored defaults.
 		reshadefx::preprocessor scan_pp;
 		for (const auto &[name, value] : user_defines)
 			scan_pp.add_macro_definition(name, value);
@@ -795,8 +734,14 @@ int main(int argc, char *argv[])
 					settings_out << u.initializer_value.as_int[c];
 					break;
 				default: // t_float and the other floating-point variants
-					settings_out << std::to_string(u.initializer_value.as_float[c]);
+				{
+					// %.9g round-trips a float; std::to_string keeps six decimals
+					// and writes a default of 1e-7 as 0.000000.
+					char buffer[32];
+					std::snprintf(buffer, sizeof(buffer), "%.9g", u.initializer_value.as_float[c]);
+					settings_out << buffer;
 					break;
+				}
 				}
 			}
 			settings_out << "\n";
@@ -806,21 +751,7 @@ int main(int argc, char *argv[])
 			std::cout << "SAVED_SETTINGS " << settings_save_path << "\n";
 	}
 
-	bool preprocess_ok;
-	if (load_settings_requested)
-	{
-		const std::map<std::string, std::vector<std::string>> settings = parse_settings_file(settings_load_path, effect_filename);
-		std::string source_text = apply_settings_to_source(original_source_text, settings);
-
-		// append_string() with a path behaves identically to append_file()
-		// for include resolution etc. - append_file() itself just reads the
-		// file and forwards to append_string() (effect_preprocessor.cpp).
-		preprocess_ok = pp.append_string(std::move(source_text), source_file);
-	}
-	else
-	{
-		preprocess_ok = pp.append_file(source_file);
-	}
+	const bool preprocess_ok = pp.append_file(source_file);
 
 	if (!preprocess_ok)
 	{
@@ -832,13 +763,10 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	// --optimize without --perf would fold nothing: the uniforms stay uniforms,
-	// so no branch becomes dead. Imply it rather than silently doing no work.
-	if (optimize)
-		performance_mode = true;
-
+	// Vulkan semantics unless OpenGL was asked for: it is what ReShade generates
+	// on Vulkan, what fxstat counts, and what RGA's Vulkan compiler expects.
 	std::unique_ptr<reshadefx::codegen> backend(
-		reshadefx::create_codegen_spirv(false, false, performance_mode, false));
+		reshadefx::create_codegen_spirv(renderer_id != 0x10000, false, performance_mode, false));
 
 	reshadefx::parser parser;
 	if (!parser.parse(pp.output(), backend.get()))
@@ -851,14 +779,50 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	// Specialization constant values from --load-settings, indexed by SpecId.
+	// The SPIR-V back end emits one scalar specialization constant per uniform
+	// component, in order, and records the component index in `offset`.
+	std::vector<uint32_t> spec_constant_values;
+	if (load_settings_requested)
+	{
+		const std::map<std::string, std::vector<std::string>> settings = parse_settings_file(settings_load_path, effect_filename);
+		std::set<std::string> applied;
+		for (const reshadefx::uniform &sc : backend->module().spec_constants)
+		{
+			uint32_t value = sc.initializer_value.as_uint[0];
+			if (const auto it = settings.find(sc.name); it != settings.end() && sc.offset < it->second.size())
+			{
+				value = setting_value_bits(sc.type.base, it->second[sc.offset]);
+				applied.insert(sc.name);
+			}
+			spec_constant_values.push_back(value);
+		}
+		// A real ReShade preset also carries keys that are not uniforms of this
+		// build of the effect (preprocessor definitions, uniforms inside an #if
+		// that is off), so this is a note, not an error.
+		for (const auto &setting : settings)
+			if (applied.find(setting.first) == applied.end())
+				std::cerr << "note: '" << setting.first << "' in " << settings_load_path
+					<< " is not a uniform of this effect; ignored\n";
+	}
+
 	if (!json_output)
 		std::cout << "COMPILE_OK " << source_file << "\n\n";
 
+	// A directory of this run's own: a shared one would let a failed RGA run
+	// pick up the output an earlier run left behind.
 	fs::path temp_dir;
 	if (!rga_path.empty())
 	{
-		temp_dir = fs::temp_directory_path() / "reshadefx_rga_work";
-		fs::create_directories(temp_dir);
+		std::error_code ec;
+		std::mt19937_64 rng(std::random_device{}());
+		temp_dir = fs::temp_directory_path(ec) / ("reshadefx_rga_" + std::to_string(rng()));
+		fs::create_directories(temp_dir, ec);
+		if (ec)
+		{
+			std::cerr << "error: could not create a temporary directory: " << ec.message() << "\n";
+			return 1;
+		}
 	}
 
 	// Buffered so JSON mode can emit one clean object at the end; text mode
@@ -883,6 +847,13 @@ int main(int argc, char *argv[])
 				std::cout << "ENTRY_FAIL " << entry_name << " " << errors << "\n";
 			}
 			continue;
+		}
+
+		if (!spec_constant_values.empty())
+		{
+			std::string patch_error;
+			if (!fxstat::patch_spec_constants(binary, spec_constant_values, patch_error))
+				std::cerr << "warning: " << entry_name << ": --load-settings not applied: " << patch_error << "\n";
 		}
 
 		const char *stage_name =
@@ -955,8 +926,12 @@ int main(int argc, char *argv[])
 
 			for (const std::string &asic : (stage_flag != nullptr ? asics : std::vector<std::string>{}))
 			{
-				const fs::path isa_path = temp_dir / (entry_name + "_" + asic + "_isa.txt");
-				const fs::path stats_path = temp_dir / (entry_name + "_" + asic + "_stats.csv");
+				// One directory per entry point and ASIC. RGA renames its output
+				// files (<asic>_<requested name>_<stage>.csv), so what it wrote
+				// is found by extension; nothing else is ever in this directory.
+				std::error_code ec;
+				const fs::path out_dir = temp_dir / (entry_name + "_" + asic);
+				fs::create_directories(out_dir, ec);
 
 				std::ostringstream cmd;
 #ifdef _WIN32
@@ -965,29 +940,21 @@ int main(int argc, char *argv[])
 				// mis-parses the first token. See MS KB "cmd /c" quoting behavior.
 				cmd << "\"";
 #endif
-				cmd << "\"" << rga_path << "\" -s vulkan -c " << asic
+				cmd << "\"" << rga_path << "\" -s " << rga_mode << " -c " << asic
 					<< " " << stage_flag << " \"" << spv_path.string() << "\""
-					<< " --isa \"" << isa_path.string() << "\""
-					<< " -a \"" << stats_path.string() << "\""
-					<< " > \"" << (temp_dir / "rga_log.txt").string() << "\" 2>&1";
+					<< " --isa \"" << (out_dir / "out.isa").string() << "\""
+					<< " -a \"" << (out_dir / "out.csv").string() << "\""
+					<< " > \"" << (out_dir / "rga_log.txt").string() << "\" 2>&1";
 #ifdef _WIN32
 				cmd << "\"";
 #endif
-				std::system(cmd.str().c_str());
+				// The exit code is not trusted either way: success is a stats file appearing.
+				(void)!std::system(cmd.str().c_str());
 
-				// RGA renames output files (<asic>_<requested-name>_<stage>.csv) rather than
-				// using the exact path given via -a, so search for what it actually produced.
-				const std::string stage_suffix =
-					stage == reshadefx::shader_type::vertex ? "_vert.csv" :
-					stage == reshadefx::shader_type::pixel ? "_frag.csv" : "_comp.csv";
 				fs::path actual_stats;
-				for (const auto &dirent : fs::directory_iterator(temp_dir))
+				for (const auto &dirent : fs::directory_iterator(out_dir, ec))
 				{
-					const std::string name = dirent.path().filename().string();
-					if (name.find(entry_name) != std::string::npos &&
-						name.find("stats") != std::string::npos &&
-						name.size() >= stage_suffix.size() &&
-						name.compare(name.size() - stage_suffix.size(), stage_suffix.size(), stage_suffix) == 0)
+					if (dirent.path().extension() == ".csv")
 					{
 						actual_stats = dirent.path();
 						break;
@@ -1043,6 +1010,12 @@ int main(int argc, char *argv[])
 				<< "\"other\":" << counts.other << ","
 				<< "\"rga\":[" << rga_results_json.str() << "]}";
 		}
+	}
+
+	if (!temp_dir.empty())
+	{
+		std::error_code ec;
+		fs::remove_all(temp_dir, ec);
 	}
 
 	if (json_output)

@@ -73,6 +73,7 @@ GPU ISA (SPIR-V back end only, needs AMD's Radeon GPU Analyzer):
 
 Comparison:
   --baseline <file.json> Compare against a report written earlier by --json.
+                         With --json too, the comparison is printed to stderr.
   --fail-on-regression   Exit 2 if anything got more expensive. For CI. With
                          --rga on both sides, judged on the GPU ISA only.
 
@@ -84,6 +85,31 @@ Output:
   --version              Print version information and exit.
   -h, --help             This message.
 )", argv0);
+}
+
+// std::stoul throws on anything that is not a number, which ends the program
+// with an uncaught exception instead of a message.
+unsigned int parse_number(const std::string &option, const std::string &value, int base = 10)
+{
+	char *end = nullptr;
+	const unsigned long number = std::strtoul(value.c_str(), &end, base);
+	if (value.empty() || *end != '\0')
+	{
+		std::fprintf(stderr, "error: %s needs a number, not '%s'\n", option.c_str(), value.c_str());
+		std::exit(1);
+	}
+	return static_cast<unsigned int>(number);
+}
+
+const char *backend_id(fxstat::backend b)
+{
+	switch (b)
+	{
+	case fxstat::backend::spirv: return "spirv";
+	case fxstat::backend::hlsl:  return "hlsl";
+	case fxstat::backend::glsl:  return "glsl";
+	default:                     return "dxbc";
+	}
 }
 
 std::string read_file(const std::string &path, bool &ok)
@@ -149,13 +175,13 @@ int main(int argc, char *argv[])
 		}
 		else if (arg == "--preset")                     { preset_file = next(); }
 		else if (arg == "--effect-name")                { effect_section = next(); }
-		else if (arg == "--width")                      { options.width = std::stoul(next()); }
-		else if (arg == "--height")                     { options.height = std::stoul(next()); }
+		else if (arg == "--width")                      { options.width = parse_number(arg, next()); }
+		else if (arg == "--height")                     { options.height = parse_number(arg, next()); }
 		else if (arg == "--spirv")                      { options.target = fxstat::backend::spirv; }
 		else if (arg == "--dxbc")                       { options.target = fxstat::backend::dxbc; }
 		else if (arg == "--hlsl")                       { options.target = fxstat::backend::hlsl; }
 		else if (arg == "--glsl")                       { options.target = fxstat::backend::glsl; }
-		else if (arg == "--shader-model")               { options.shader_model = std::stoul(next()); }
+		else if (arg == "--shader-model")               { options.shader_model = parse_number(arg, next()); }
 		else if (arg == "--dxbc-compiler")
 		{
 			const std::string c = next();
@@ -169,7 +195,7 @@ int main(int argc, char *argv[])
 		else if (arg == "-O1")                          { options.optimization_level = 1; }
 		else if (arg == "-O2")                          { options.optimization_level = 2; }
 		else if (arg == "-O3")                          { options.optimization_level = 3; }
-		else if (arg == "--renderer")                   { options.renderer = std::stoul(next(), nullptr, 0); }
+		else if (arg == "--renderer")                   { options.renderer = parse_number(arg, next(), 0); }
 		else if (arg == "--performance-mode")           { options.performance_mode = true; }
 		else if (arg == "--no-performance-mode")        { options.performance_mode = false; }
 		else if (arg == "--optimize")                   { options.optimize = true; }
@@ -255,22 +281,43 @@ int main(int argc, char *argv[])
 	}
 
 	if (json)
-	{
 		fxstat::print_json(stdout, source_file, options, result, isa_ptr, rga.asic);
-		return 0;
-	}
 
 	if (!baseline_file.empty())
 	{
 		std::map<std::string, fxstat::baseline_entry> baseline;
+		fxstat::baseline_info info;
 		std::string error;
-		if (!fxstat::load_baseline(baseline_file, baseline, error))
+		if (!fxstat::load_baseline(baseline_file, baseline, info, error))
 		{
 			std::fprintf(stderr, "error: %s\n", error.c_str());
 			return 1;
 		}
-		std::printf("%s  vs  %s\n", source_file.c_str(), baseline_file.c_str());
-		const bool regressed = fxstat::print_diff(stdout, result, baseline, isa_ptr);
+
+		// Counts from another back end or DXBC compiler are not comparable, so a
+		// diff against them would report differences that mean nothing.
+		if (!info.backend.empty() && info.backend != backend_id(options.target))
+		{
+			std::fprintf(stderr, "error: the baseline was written by the %s back end, this run uses %s\n",
+				info.backend.c_str(), backend_id(options.target));
+			return 1;
+		}
+		if (!info.dxbc_compiler.empty() && info.dxbc_compiler != result.dxbc_compiler_used)
+		{
+			std::fprintf(stderr, "error: the baseline was compiled with %s, this run with %s\n",
+				info.dxbc_compiler.c_str(),
+				result.dxbc_compiler_used.empty() ? "no DXBC compiler" : result.dxbc_compiler_used.c_str());
+			return 1;
+		}
+		if (options.target == fxstat::backend::spirv && options.optimize &&
+			!info.optimizer_version.empty() && info.optimizer_version != result.optimizer_version)
+			std::fprintf(stderr, "warning: the baseline was optimised with a different SPIRV-Tools (%s), "
+				"so counts can differ for that reason alone\n", info.optimizer_version.c_str());
+
+		// With --json, stdout is the report; the comparison goes to stderr.
+		std::FILE *const diff_out = json ? stderr : stdout;
+		std::fprintf(diff_out, "%s  vs  %s\n", source_file.c_str(), baseline_file.c_str());
+		const bool regressed = fxstat::print_diff(diff_out, result, baseline, isa_ptr);
 		if (regressed && fail_on_regression)
 		{
 			std::fprintf(stderr, "error: the effect got more expensive against the baseline\n");
@@ -278,6 +325,9 @@ int main(int argc, char *argv[])
 		}
 		return 0;
 	}
+
+	if (json)
+		return 0;
 
 	fxstat::print_report(stdout, source_file, options, result, verbose, isa_ptr, rga.asic);
 	return 0;
