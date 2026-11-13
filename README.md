@@ -67,7 +67,7 @@ More detail on each:
   [docs/LAYOUT.md](docs/LAYOUT.md).
 - **`reshadefx_coverage`** — walks every effect, every entry point and every
   requested shader model and reports exactly what fails to compile to DXBC
-  and why.
+  and why. Exits 1 if anything failed, so it can gate a script or CI step.
 
 `reshadefx_rga` and `fxstat` accept `--json` for machine-readable output.
 
@@ -91,6 +91,9 @@ point `reshadefx_rga` at an installed copy of RGA (download from its
 ```bash
 ./bin/reshadefx_rga -I path/to/reshade-shaders/Shaders --rga path/to/rga --asic gfx1100 myshader.fx
 ```
+
+RGA is run in its `vk-spv-offline` mode, which needs no GPU or driver (the mode
+`fxstat --rga` uses too). `--rga-mode <mode>` selects another, e.g. `vulkan`.
 
 Add `--json` for machine-readable output instead of the human-readable text
 shown above:
@@ -141,8 +144,9 @@ other side of an `if` a uniform guards, for instance — use:
 ```bash
 --load-settings[=<path>]   # read plain-numeric uniform overrides from a
                              # ReShade-preset-format file (a real ReShade
-                             # preset works too) and apply them before
-                             # compiling. Implies --perf, since
+                             # preset works too) and bake them into the
+                             # compiled shaders, including uniforms declared
+                             # in included files. Implies --perf, since
                              # that's the only mode where a uniform's value
                              # becomes part of the compiled code rather than
                              # a runtime-editable buffer entry.

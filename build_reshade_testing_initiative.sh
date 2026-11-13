@@ -114,8 +114,9 @@ EOF
 # --- vkd3d-shader (only for the tools that need --dxbc on Linux) -------------
 
 VKD3D="$DEPS_DIR/vkd3d"
-# Rebuilt when missing, or when patches/vkd3d changed since it was built.
-VKD3D_PATCHES="$(cat "$SCRIPT_DIR"/patches/vkd3d/*.patch 2>/dev/null | cksum)"
+# Rebuilt when missing, or when its build script (which pins the vkd3d commit)
+# or patches/vkd3d changed since it was built.
+VKD3D_PATCHES="$(cat "$SCRIPT_DIR/tools/build-vkd3d-shader.sh" "$SCRIPT_DIR"/patches/vkd3d/*.patch 2>/dev/null | cksum)"
 if [ "$NEED_VKD3D" -eq 1 ] && { [ ! -f "$VKD3D/libvkd3d-shader.a" ] ||
 		[ "$(cat "$VKD3D/patches.cksum" 2>/dev/null)" != "$VKD3D_PATCHES" ]; }; then
 	bash "$SCRIPT_DIR/tools/build-vkd3d-shader.sh" "$VKD3D"
@@ -193,6 +194,7 @@ if [ "$WANT_RGA" -eq 1 ]; then
 	g++ -std=c++17 "${SIZE_FLAGS[@]}" -DRESHADEFX_VERSION_NUM=$VER_NUM "${INCLUDES[@]}" \
 		"${FX_SRC[@]}" "$R/source/effect_codegen_spirv.cpp" \
 		"$SCRIPT_DIR/rga/reshadefx_rga.cpp" "$SCRIPT_DIR/rga/spirv_optimize.cpp" \
+		-I "$SCRIPT_DIR/fxstat/src/core" "$SCRIPT_DIR/fxstat/src/core/spirv_patch.cpp" \
 		"${SPIRV_TOOLS_FLAGS[@]}" \
 		-o "$OUT_DIR/reshadefx_rga"
 	BUILT+=(reshadefx_rga)

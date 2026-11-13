@@ -87,11 +87,10 @@ bool rti::spirv_optimize(const std::string &input, std::string &output,
 		return false;
 	}
 
-	// reshadefx_rga asks reshadefx for OpenGL-semantics SPIR-V
-	// (create_codegen_spirv with vulkan_semantics=false), which legitimately
-	// uses gl_VertexID and OriginLowerLeft. Validating that against Vulkan rules
-	// rejects every module. Use the universal environment, which imposes neither
-	// API's extra rules.
+	// reshadefx_rga asks reshadefx for Vulkan-semantics SPIR-V, or with
+	// --renderer 0x10000 for OpenGL semantics, which legitimately uses
+	// gl_VertexID and OriginLowerLeft. Use the universal environment, which
+	// imposes neither API's extra rules.
 	spvtools::Optimizer optimizer(SPV_ENV_UNIVERSAL_1_3);
 
 	std::string messages;

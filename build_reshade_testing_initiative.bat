@@ -190,7 +190,7 @@ if "%WANT_RGA%"=="1" (
 	) else (
 		echo   SPIRV-Tools not found: --optimize will report it is unavailable. Set SPIRV_TOOLS_DIR to enable it.
 	)
-	g++ %FLAGS% -DRESHADEFX_VERSION_NUM=%VER_NUM% %INCLUDES% %FX_SRC% "%R%\source\effect_codegen_spirv.cpp" "%SCRIPT_DIR%rga\reshadefx_rga.cpp" "%SCRIPT_DIR%rga\spirv_optimize.cpp" !SPIRV_TOOLS_FLAGS! %LINK_FLAGS% -o "%OUT_DIR%\reshadefx_rga.exe" || exit /b 1
+	g++ %FLAGS% -DRESHADEFX_VERSION_NUM=%VER_NUM% %INCLUDES% %FX_SRC% "%R%\source\effect_codegen_spirv.cpp" "%SCRIPT_DIR%rga\reshadefx_rga.cpp" "%SCRIPT_DIR%rga\spirv_optimize.cpp" -I "%SCRIPT_DIR%fxstat\src\core" "%SCRIPT_DIR%fxstat\src\core\spirv_patch.cpp" !SPIRV_TOOLS_FLAGS! %LINK_FLAGS% -o "%OUT_DIR%\reshadefx_rga.exe" || exit /b 1
 	set "BUILT=!BUILT! reshadefx_rga.exe"
 )
 

@@ -8,7 +8,7 @@ Current state of the work these branch off:
 
 | piece | state |
 |---|---|
-| `reshadefx_cli` with working `--dxbc` on Linux | done, 77/77 entry points SM4.0–5.1 |
+| `reshadefx_cli_fixed` with working `--dxbc` on Linux | done, 77/77 entry points SM4.0–5.1 |
 | `libvkd3d-shader.a` built natively from Wine's vendored copy | done, scripted |
 | `fxstat` split into `libfxstat_core` + thin CLI | done |
 | SPIRV-Tools linked rather than shelled out to | done |

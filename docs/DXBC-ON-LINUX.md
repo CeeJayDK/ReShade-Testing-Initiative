@@ -81,9 +81,15 @@ cached in `.deps/vkd3d`.
 
 vkd3d upstream lives on Codeberg. This builds it from **Wine's vendored copy**
 (`libs/vkd3d` in the Wine tree) instead, for two reasons: the Wine GitHub mirror
-can be fetched sparsely, and Wine tracks vkd3d closely — the copy used here was
-a day old at the time of writing, far newer than any packaged vkd3d (Ubuntu
-24.04 ships 1.2, from 2020, which has essentially no HLSL compiler).
+can be fetched sparsely, and Wine tracks vkd3d closely — far newer than any
+packaged vkd3d (Ubuntu 24.04 ships 1.2, from 2020, which has essentially no HLSL
+compiler).
+
+The Wine commit is pinned (`WINE_REF` in `tools/build-vkd3d-shader.sh`, the same
+commit `shaderlab/build_runtime.sh` uses), because every DXBC count depends on
+the vkd3d revision. Against the pinned commit a `patches/vkd3d` patch that does
+not apply fails the build. To move to a newer vkd3d, change `WINE_REF` and re-run
+the tests; the build notices the change and rebuilds vkd3d.
 
 The cost is that Wine's copy is edited for building inside the Wine tree: it
 includes `windows.h`, `<wine/list.h>`, `d3dcommon.h` and `d3dx9shader.h` and

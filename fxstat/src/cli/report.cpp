@@ -33,9 +33,27 @@ std::string json_escape(const std::string &s)
 	std::string out;
 	for (const char c : s)
 	{
-		if (c == '"' || c == '\\')
-			out += '\\';
-		out += c;
+		switch (c)
+		{
+		case '"':  out += "\\\""; break;
+		case '\\': out += "\\\\"; break;
+		case '\n': out += "\\n"; break;
+		case '\r': out += "\\r"; break;
+		case '\t': out += "\\t"; break;
+		default:
+			// Other control characters (an RGA log can hold anything) are not
+			// allowed raw in a JSON string.
+			if (static_cast<unsigned char>(c) < 0x20)
+			{
+				char buffer[8];
+				std::snprintf(buffer, sizeof(buffer), "\\u%04x", static_cast<unsigned int>(static_cast<unsigned char>(c)));
+				out += buffer;
+			}
+			else
+			{
+				out += c;
+			}
+		}
 	}
 	return out;
 }

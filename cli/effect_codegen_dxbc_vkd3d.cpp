@@ -9,15 +9,15 @@
  *
  * Shader model mapping:
  *   30       -> vs_3_0 / ps_3_0, emitted as D3D bytecode (the DX9 format)
- *   40..51   -> vs_5_0 / ps_5_0 / cs_5_0 etc., emitted as DXBC ("TPF")
+ *   40..51   -> the matching profile (vs_4_0, ps_4_1, cs_5_0, ...), emitted as
+ *               DXBC ("TPF")
  *
  * Differences from D3DCompiler worth knowing about:
  *
  *   - vkd3d-shader has no equivalent of D3DCOMPILE_OPTIMIZATION_LEVEL*. The
  *     optimization_level argument is accepted for signature compatibility and
- *     is only used to honour '#pragma reshade skipoptimization', which maps to
- *     the closest available behaviour. Instruction counts from this back end
- *     therefore will not match FXC's exactly.
+ *     ignored, as is '#pragma reshade skipoptimization'. Instruction counts
+ *     from this back end therefore will not match FXC's exactly.
  *   - Its HLSL front end is not a complete D3DCompiler clone. Effects that
  *     compile with FXC can still fail here; that is a vkd3d limitation, not a
  *     ReShadeFX one, and the error text says so.
@@ -68,9 +68,8 @@ namespace
 class codegen_dxbc final : public codegen_hlsl
 {
 public:
-	codegen_dxbc(unsigned int shader_model, bool debug_info, bool uniforms_to_spec_constants, int optimization_level) :
-		codegen_hlsl(shader_model, debug_info, uniforms_to_spec_constants),
-		_optimization_level(optimization_level)
+	codegen_dxbc(unsigned int shader_model, bool debug_info, bool uniforms_to_spec_constants, int /* optimization_level */) :
+		codegen_hlsl(shader_model, debug_info, uniforms_to_spec_constants)
 	{
 	}
 
@@ -164,17 +163,6 @@ public:
 
 		return true;
 	}
-
-	void emit_pragma(const std::string &pragma) override
-	{
-		if (pragma == "reshade skipoptimization" || pragma == "reshade nooptimization")
-			_optimization_level = -1;
-
-		codegen_hlsl::emit_pragma(pragma);
-	}
-
-private:
-	int _optimization_level;
 };
 
 #ifndef RESHADEFX_CODEGEN_DXBC_INLINE

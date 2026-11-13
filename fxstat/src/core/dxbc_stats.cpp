@@ -40,8 +40,10 @@ fxstat::dxbc_category fxstat::classify_dxbc_opcode(const std::string &raw_opcode
 	const std::string op = base_opcode(raw_opcode);
 
 	// Declarations describe the shader's interface; they are not executed.
+	// The SM3 constant definitions are def, defi and defb -- matched exactly,
+	// because "default" (a switch label) starts with "def" as well.
 	if (starts_with(op, "dcl_") || op == "dcl" ||
-		starts_with(op, "def") || starts_with(op, "dq"))
+		op == "def" || op == "defi" || op == "defb" || starts_with(op, "dq"))
 		return dxbc_category::decl;
 
 	// Texture and buffer access.
@@ -98,6 +100,10 @@ bool fxstat::analyze_dxbc_asm(const std::string &listing, dxbc_stats &out, std::
 
 	size_t line_start = 0;
 	bool first = true;
+	// Brace depth carried over from earlier lines. The data of an immediate
+	// constant buffer (and of an initialised indexable temp) is listed in
+	// braces over several lines; those rows are data, not instructions.
+	int brace_depth = 0;
 
 	while (line_start < listing.size())
 	{
@@ -115,6 +121,17 @@ bool fxstat::analyze_dxbc_asm(const std::string &listing, dxbc_stats &out, std::
 		line = line.substr(begin);
 
 		if (line.empty() || line[0] == '/' || line[0] == '#')
+			continue;
+
+		const bool continuation = brace_depth > 0;
+		for (const char c : line)
+		{
+			if (c == '{')
+				++brace_depth;
+			else if (c == '}' && brace_depth > 0)
+				--brace_depth;
+		}
+		if (continuation)
 			continue;
 
 		// The first non-empty line is the profile, e.g. "ps_5_0".

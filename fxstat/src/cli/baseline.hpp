@@ -21,6 +21,16 @@ namespace fxstat
 		uint32_t isa_cost() const { return isa_valu + 3 * isa_trans; }
 	};
 
+	// How the baseline was produced. Counts from a different back end or DXBC
+	// compiler measure different things and cannot be compared.
+	struct baseline_info
+	{
+		std::string backend;           // "spirv", "dxbc", ...
+		std::string dxbc_compiler;     // empty unless the DXBC back end wrote it
+		std::string optimizer_version; // SPIRV-Tools version
+	};
+
 	// Read a report previously written by `fxstat --json`, keyed by entry point name.
-	bool load_baseline(const std::string &path, std::map<std::string, baseline_entry> &out, std::string &error);
+	bool load_baseline(const std::string &path, std::map<std::string, baseline_entry> &out,
+	                   baseline_info &info, std::string &error);
 }

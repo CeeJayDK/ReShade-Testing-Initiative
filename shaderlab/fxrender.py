@@ -14,7 +14,7 @@ writes the unprocessed image).
 Exit code: 0 = compiled and rendered, 1 = compile error / render failure,
 2 = usage or environment problem.
 """
-import argparse, json, os, re, shutil, subprocess, sys, tempfile, time
+import argparse, fcntl, json, os, re, shutil, subprocess, sys, tempfile, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -195,11 +195,21 @@ def main():
     if args.reference and not args.reference.is_file():
         print(f"reference not found: {args.reference}", file=sys.stderr); return 2
     if not (APP_DIR / "ShaderLab.exe").is_file():
-        print(f"ShaderLab runtime not found in {APP_DIR} (run setup_runtime.sh)", file=sys.stderr); return 2
+        print(f"ShaderLab runtime not found in {APP_DIR} (run build_runtime.sh)", file=sys.stderr); return 2
+
+    for kv in args.set:
+        if "=" not in kv:
+            print(f"--set needs VAR=VALUE, not '{kv}'", file=sys.stderr); return 2
 
     techs = args.technique or techniques_in(fx)
     if not techs:
         print("no technique found in shader", file=sys.stderr); return 2
+
+    # One render at a time per runtime: ReShade.ini and ReShade.log live in the app
+    # folder, and an aborted run ends with `wineserver -k`, which would take down
+    # another render in the same prefix. A second fxrender waits here.
+    lock = open(APP_DIR / ".fxrender.lock", "w")
+    fcntl.flock(lock, fcntl.LOCK_EX)
 
     env = dict(os.environ)
     env.update(WINEPREFIX=str(WINEPREFIX), WINEDEBUG="-all",

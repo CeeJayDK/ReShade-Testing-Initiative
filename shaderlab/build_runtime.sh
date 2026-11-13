@@ -42,6 +42,16 @@ MINGW_GCC=/usr/lib/gcc/x86_64-w64-mingw32/$(ls /usr/lib/gcc/x86_64-w64-mingw32 |
 export WINEPREFIX="$OUT/prefix" WINEDEBUG=-all
 mkdir -p "$SRC"
 
+# Apply a patch once. "Already applied" is checked for, so a patch that no
+# longer applies at all stops the build instead of being passed over.
+apply_once() { # dir patch
+	if git -C "$1" apply --reverse --check "$2" 2>/dev/null; then
+		echo "   ($(basename "$2") already applied)"
+	else
+		git -C "$1" apply "$2"
+	fi
+}
+
 fetch() { # url dir ref
 	if [ ! -d "$2/.git" ]; then git clone -q "$1" "$2"; fi
 	git -C "$2" fetch -q --depth 1 origin "$3" 2>/dev/null || git -C "$2" fetch -q origin
@@ -137,15 +147,15 @@ mkdir -p "$OUT/build/fxcw"
 cp "$D/d3dcompiler_47.dll" "$OUT/build/fxcw/"
 x86_64-w64-mingw32-gcc -O2 "$HERE/mingw/fxcw.c" -o "$OUT/build/fxcw/fxcw.exe" -ld3dcompiler_47
 R="$SRC/reshade"
-( cd "$R" && git apply --check "$HERE/patches/reshade-mingw.patch" 2>/dev/null && git apply "$HERE/patches/reshade-mingw.patch" ) || echo "   (ReShade patch already applied)"
+apply_once "$R" "$HERE/patches/reshade-mingw.patch"
 # vkd3d-shader does not implement [fastopt], which ReShade emits for [loop] loops at
 # SM 4+ ("E5017: Unhandled attribute 'fastopt'"); [loop] means the same to the compiler.
-( cd "$R" && git apply --check "$HERE/patches/reshade-loop-attribute.patch" 2>/dev/null && git apply "$HERE/patches/reshade-loop-attribute.patch" ) || echo "   (loop attribute patch already applied)"
+apply_once "$R" "$HERE/patches/reshade-loop-attribute.patch"
 # vkd3d-shader has no isnan (docs/upstream/vkd3d/ISSUE-isnan.md): emit (x != x).
-( cd "$R" && git apply --check "$HERE/patches/reshade-isnan.patch" 2>/dev/null && git apply "$HERE/patches/reshade-isnan.patch" ) || echo "   (isnan patch already applied)"
+apply_once "$R" "$HERE/patches/reshade-isnan.patch"
 # vkd3d-shader cannot compile isinf outside the entry point (docs/upstream/vkd3d/ISSUE-isinf.md)
 # and has no reversebits (ISSUE-reversebits.md): emit a magnitude test and ReShade's own fallback.
-( cd "$R" && git apply --check "$HERE/patches/reshade-vkd3d-bits.patch" 2>/dev/null && git apply "$HERE/patches/reshade-vkd3d-bits.patch" ) || echo "   (isinf/reversebits patch already applied)"
+apply_once "$R" "$HERE/patches/reshade-vkd3d-bits.patch"
 sed -i 's/defined(_MSC_VER) || !defined(_WIN32)/1/' "$R"/deps/d3d12/include/directx/*.h
 # vkd3d does not support the RootSignature attribute or expressions in [numthreads]; D3D11 ignores the former
 python3 - "$R/res/shaders/mipmap_cs_5_0.hlsl" "$OUT/build/fxcw/mipmap_cs.hlsl" <<'EOF'
@@ -180,7 +190,7 @@ ninja -C "$OUT/build/reshade" -j"$JOBS" ReShade
 
 echo "== ShaderLab"
 S="$SRC/ShaderLab"
-( cd "$S" && git apply --check "$HERE/patches/shaderlab-mingw.patch" 2>/dev/null && git apply "$HERE/patches/shaderlab-mingw.patch" ) || echo "   (ShaderLab patch already applied)"
+apply_once "$S" "$HERE/patches/shaderlab-mingw.patch"
 cmake -S "$S" -B "$OUT/build/shaderlab" -G Ninja -DCMAKE_TOOLCHAIN_FILE="$TC" -DCMAKE_BUILD_TYPE=Release \
 	-DBUILD_GAME_CAPTURE=OFF -DBUILD_UNDO_REDO=OFF -DCMAKE_CXX_STANDARD_LIBRARIES="$STDLIBS" >/dev/null
 ninja -C "$OUT/build/shaderlab" -j"$JOBS"

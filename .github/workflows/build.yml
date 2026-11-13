@@ -1,5 +1,11 @@
 name: Build
 
+# The test corpora, pinned: the tests compare instruction counts, which a commit
+# to either repository can change.
+env:
+  SHADERS_REF: fd0022170615ce0d8162d219bff07232fa6dd84f   # crosire/reshade-shaders
+  SWEETFX_REF: 93ddf39b357f5da534ed6d34ba4ec8cc7dcfa361   # CeeJayDK/SweetFX
+
 on:
   push:
     branches: [ main ]
@@ -28,8 +34,13 @@ jobs:
 
       - name: Test
         run: |
-          git clone --quiet --depth 1 https://github.com/crosire/reshade-shaders.git "$RUNNER_TEMP/reshade-shaders"
-          git clone --quiet --depth 1 https://github.com/CeeJayDK/SweetFX.git "$RUNNER_TEMP/SweetFX"
+          fetch() { # url dir commit
+            git init --quiet "$2"
+            git -C "$2" fetch --quiet --depth 1 "$1" "$3"
+            git -C "$2" -c advice.detachedHead=false checkout --quiet FETCH_HEAD
+          }
+          fetch https://github.com/crosire/reshade-shaders.git "$RUNNER_TEMP/reshade-shaders" "$SHADERS_REF"
+          fetch https://github.com/CeeJayDK/SweetFX.git "$RUNNER_TEMP/SweetFX" "$SWEETFX_REF"
           I="-I $RUNNER_TEMP/reshade-shaders/Shaders"
           FX="$RUNNER_TEMP/SweetFX/Shaders/SweetFX/LumaSharpen.fx"
           ./bin/reshadefx_cli_fixed --version
@@ -74,8 +85,14 @@ jobs:
       - name: Test
         shell: pwsh
         run: |
-          git clone --quiet --depth 1 https://github.com/crosire/reshade-shaders.git "$env:RUNNER_TEMP\reshade-shaders"
-          git clone --quiet --depth 1 https://github.com/CeeJayDK/SweetFX.git "$env:RUNNER_TEMP\SweetFX"
+          function Fetch($url, $dir, $commit) {
+            git init --quiet $dir
+            git -C $dir fetch --quiet --depth 1 $url $commit
+            git -C $dir -c advice.detachedHead=false checkout --quiet FETCH_HEAD
+            if ($LASTEXITCODE -ne 0) { Write-Host "::error::could not fetch $url at $commit"; exit 1 }
+          }
+          Fetch https://github.com/crosire/reshade-shaders.git "$env:RUNNER_TEMP\reshade-shaders" $env:SHADERS_REF
+          Fetch https://github.com/CeeJayDK/SweetFX.git "$env:RUNNER_TEMP\SweetFX" $env:SWEETFX_REF
           $I  = "$env:RUNNER_TEMP\reshade-shaders\Shaders"
           $FX = "$env:RUNNER_TEMP\SweetFX\Shaders\SweetFX\LumaSharpen.fx"
           # The binaries are meant to be standalone, but if one ever links a
